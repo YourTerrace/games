@@ -163,6 +163,7 @@ oe_x:        .res 2
 oe_y:        .res 2
 room_exit:   .res 4          ; 上下左右の行き先 ($FF = なし)
 room_enter:  .res 1          ; 初入室時の台本 ($FF = なし)。room_exit の直後に置くこと
+room_music:  .res 1          ; 部屋の曲。room_enter の直後に置くこと
 boss_dead:   .res 1
 ev_boss:     .res 1
 chk_room:    .res 1          ; 最後に休んだ焚き火
@@ -465,6 +466,12 @@ UploadSpc:
 :   cmp $2140
     bne :-
     stz se_count
+    rts
+
+; A = 曲番号 (0 で止める)。音源のポート2に書く
+PlayMusic:
+    .a8
+    sta $2142
     rts
 
 ; A = 効果音番号。APU のポート0に番号、ポート1に通し番号を書く
@@ -2415,13 +2422,15 @@ SetChr:     .incbin "set0.chr"
             .incbin "set2.chr"
 .segment "BANK2"
 BgChr:      .incbin "bg.chr"
-SpcData:    .incbin "spc.bin"
 GlyphChr:   .incbin "glyph.chr"
 
 .segment "BANK3"
 RoomMaps:   .incbin "rooms.bin"
 WindowMap:  .incbin "window.map"
 BlankMap:   .incbin "blank.map"
+
+.segment "BANK4"
+SpcData:    .incbin "spc.bin"          ; 音源ドライバ・波形・曲 (起動時に音源へ送る)
 
 ; ---- カートリッジヘッダ -----------------------------------------------------
 .segment "HEADER"

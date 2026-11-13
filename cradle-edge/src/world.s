@@ -186,8 +186,10 @@ LoadRoom:
     sta room_exit,x
     iny
     inx
-    cpx #$0005              ; 出入口4つ + 入室時の台本
+    cpx #$0006              ; 出入口4つ + 入室時の台本 + 曲
     bne @exits
+    lda room_music
+    jsr PlayMusic
     ; タイルマップ
     rep #$20
     lda (rp),y
@@ -901,7 +903,9 @@ TitleScreen:
     stx txt_addr
     lda #SCR_T_CONT
     jsr DrawLine
-:   jsr FadeIn
+:   lda #BGM_VILLAGE
+    jsr PlayMusic
+    jsr FadeIn
     stz pad_new
     stz pad_new+1
 @loop:
@@ -1003,6 +1007,8 @@ BossDefeated:
     plx
     dex
     bne @wait
+    lda #BGM_VILLAGE
+    jsr PlayMusic
     lda #SCR_BOSS_OUT
     jsr ShowScript
     jsr SaveGame

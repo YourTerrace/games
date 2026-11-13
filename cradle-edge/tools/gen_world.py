@@ -568,8 +568,9 @@ for ri, room in enumerate(ROOMS):
     n = room["name"]
     enter = f"SCR_{room['enter']}" if room.get("enter") else "$FF"
     R.append(f"room_{n}:")
+    music = {SET_VILLAGE: 1, SET_FIELD: 2, SET_BOSS: 3}[room["set"]]
     R.append(f"  .byte {room['set']}, {room.get('up', NONE)}, {room.get('down', NONE)}, "
-             f"{room.get('left', NONE)}, {room.get('right', NONE)}, {enter}")
+             f"{room.get('left', NONE)}, {room.get('right', NONE)}, {enter}, {music}")
     R.append(f"  .word {off}                 ; RoomMaps 内の位置")
     for k in range(0, 224, 16):
         R.append("  .byte " + ", ".join(str(v) for v in col[k:k + 16]))
