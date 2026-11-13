@@ -63,9 +63,9 @@ def skip_dialogue(limit=40):
     """会話が終わる (歩けるようになる) まで A を押す。"""
     for _ in range(limit):
         p0 = pos()
-        emu.run(6, "DOWN")
+        emu.run(6, "RIGHT")
         moved = pos() != p0
-        emu.run(6, "UP")
+        emu.run(6, "LEFT")
         if moved or pos() != p0:
             return True
         emu.run(2, "A")
@@ -303,3 +303,4 @@ shot("12_continue")
 
 print("PASS" if ok else "FAIL")
 sys.exit(0 if ok else 1)
+
