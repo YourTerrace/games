@@ -211,6 +211,12 @@ ch_lv1:      .res 1          ; 溜めの段階 (護符で変わる)
 ch_lv2:      .res 1
 cast_heal:   .res 1          ; 詠唱の長さ (護符で変わる)
 cast_over:   .res 1
+mq_exp:      .res 6          ; 熟練の経験 (連斬 / 溜め斬り / 返し刃)
+mq_lv:       .res 3          ; 熟練 Lv (1-5)
+chart:       .res 5          ; 母のカルテ (敵の種別ごと、崩壊させた回数)
+chart_done:  .res 1          ; 完成したカルテの数
+over_amt:    .res 1          ; 過治癒 1 回で溜まる飽和
+pause_pg:    .res 1
 
 .bss
 oam_buf:     .res 512
@@ -1291,7 +1297,8 @@ ApplyHit:
     lda p_justm
     beq :+
     jsr Boost150
-:   lda d_col,x             ; 崩壊中の敵には2倍
+:   jsr MasteryBoost        ; 熟練 Lv ごとに +1/16
+    lda d_col,x             ; 崩壊中の敵には2倍
     rep #$20
     beq :+
     asl t3
@@ -1389,6 +1396,7 @@ ApplyHit:
     lda #SE_HEAVY
 :   jsr PlaySe
     jsr SpawnSparkAtDummy
+    jsr MasteryGain
     lda combo
     cmp #99
     bcs :+

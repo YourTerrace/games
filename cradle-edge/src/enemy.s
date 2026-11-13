@@ -73,6 +73,35 @@ SpawnEnemy:
     sta d_maxhp,x
     lda e_satmax,y
     sta d_satmax,x
+    sep #$20                ; カルテが完成した種は飽和しやすい (4/5)
+    lda t0
+    rep #$20
+    and #$00FF
+    phy
+    tay
+    sep #$20
+    lda chart,y
+    ply
+    cmp #CHART_MAX
+    rep #$20
+    bcc :+
+    lda d_satmax,x
+    lsr a
+    lsr a
+    lsr a
+    lsr a
+    lsr a
+    sta t2
+    lda d_satmax,x
+    sec
+    sbc t2
+    sec
+    sbc t2
+    sbc t2
+    sbc t2
+    sbc t2                  ; − 5/32 ≒ 4/5 倍
+    sta d_satmax,x
+:
     lda e_defh,y
     sta d_def,x
     sep #$20

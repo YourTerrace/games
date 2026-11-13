@@ -111,7 +111,7 @@ class Emu:
 
     def image(self):
         data, w, h, pitch = self.frame
-        if self.pixfmt == 1 or pitch >= w * 4:   # XRGB8888 (bsnes は形式を知らせずに使う)
+        if self.pixfmt == 1 or (self.pixfmt == 0 and pitch >= w * 4):  # XRGB8888 (bsnes は形式を知らせずに使う)
             img = Image.frombuffer("RGBA", (w, h), data, "raw", "BGRA", pitch, 1).convert("RGB")
         else:  # RGB565 / 0RGB1555
             mode = "BGR;16" if self.pixfmt == 2 else "BGR;15"

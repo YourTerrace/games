@@ -11,6 +11,7 @@ MEAL_MEAT   = 1             ; 力 +3
 MEAL_ROOT   = 2             ; 守 +3
 MEAL_DEW    = 3             ; 慈力の回復が速い
 MARK_MAX    = 3
+CHART_MAX   = 3             ; カルテが完成するまでの崩壊回数
 NUM_ROWS    = 6             ; 支度メニューの行数 (窓に見えるのは 4 行)
 NUM_AMULETS = 7             ; なし + 6
 AMB_FORGE   = 1 << 1        ; 鍛冶屋の前掛け: 守 +3
@@ -22,6 +23,50 @@ AMB_QUICK   = 1 << 6        ; 早口の護符: 詠唱が速い
 
 RecalcStats:
     .a8
+    ; 熟練 Lv
+    ldx #$0000
+@mq:
+    phx
+    rep #$20
+    txa
+    asl a
+    tax
+    lda mq_exp,x
+    ldy #$0000
+@lvl:
+    iny
+    iny
+    cpy #$000A
+    bcs @got
+    cmp mq_need,y
+    bcs @lvl
+@got:
+    tya
+    lsr a
+    sep #$20
+    plx
+    sta mq_lv,x
+    inx
+    cpx #$0003
+    bne @mq
+    ; カルテ: 完成数 → 過治癒の量 (30 + 3 × 完成数)
+    stz chart_done
+    ldx #$0001
+@ch:
+    lda chart,x
+    cmp #CHART_MAX
+    bcc :+
+    inc chart_done
+:   inx
+    cpx #$0005
+    bne @ch
+    lda chart_done
+    asl a
+    clc
+    adc chart_done
+    clc
+    adc #OVER_AMOUNT
+    sta over_amt
     ; 力 = 10 + 見切り印の合計 ÷ 3 (+ 献立)
     lda marks+1
     clc
@@ -503,12 +548,17 @@ MenuAddr:
 ; ---- 一時停止 (START): 母の作戦・力・見切り印 ----------------------------
 PauseMenu:
     .a8
+    stz pause_pg
+PauseDraw:
     stz pad_new
     stz pad_new+1
     jsr WinOpen
     stz menu_cur
     stz menu_top
-    jsr PauseTac
+    lda pause_pg
+    beq :+
+    jmp PausePage2
+:   jsr PauseTac
     ; 2 行目: 力 守 印
     lda #1
     sta menu_line
@@ -554,6 +604,7 @@ PauseMenu:
     jsr DrawLine
     lda marks+4
     jsr PutMarks
+PauseLoop:
 @loop:
     stz pad_new
     stz pad_new+1
@@ -562,6 +613,15 @@ PauseMenu:
     lda pad_new+1
     and #$90                ; B / START で閉じる
     bne @exit
+    lda pad_new+1
+    and #$0C                ; 上下でページを替える
+    beq :+
+    lda pause_pg
+    eor #$01
+    sta pause_pg
+    jmp PauseDraw
+:   lda pause_pg
+    bne @loop
     lda pad_new+1
     and #$43                ; Y / 左右
     bne @tac
@@ -583,6 +643,40 @@ PauseMenu:
     stz pad_new
     stz pad_new+1
     jmp WinClose
+
+; 2 ページ目: 熟練とカルテ
+PausePage2:
+    .a8
+    ldx #$0000
+@l:
+    phx
+    txa
+    sta menu_line
+    jsr MenuAddr
+    plx
+    phx
+    txa
+    clc
+    adc #SCR_Q_L0
+    jsr DrawLine
+    plx
+    phx
+    lda mq_lv,x
+    jsr PutNum
+    plx
+    inx
+    cpx #$0003
+    bne @l
+    lda #3
+    sta menu_line
+    jsr MenuAddr
+    lda #SCR_Q_L3
+    jsr DrawLine
+    lda chart_done
+    jsr PutNum
+    lda #SCR_Q_OF4
+    jsr DrawLine
+    jmp PauseLoop
 
 PauseTac:
     .a8
@@ -655,6 +749,121 @@ WinClose:
     sta vd_len
     sep #$20
     jmp WaitFrame
+
+; ---- 熟練 ------------------------------------------------------------------
+; Y = 段 → X = 熟練の種類 (連斬 0 / 溜め斬り 1 / 返し刃 2)
+StageGroup:
+    .a8
+    lda stage_group,y
+    rep #$20
+    and #$00FF
+    tax
+    sep #$20
+    rts
+
+; Y = 段。t3 (16bit) に Lv × 1/16 を足す。X は保存
+MasteryBoost:
+    .a8
+    phx
+    jsr StageGroup
+    lda mq_lv,x
+    dec a
+    beq @done
+    sta t1
+    stz t1+1
+    rep #$20
+    lda t3
+    lsr a
+    lsr a
+    lsr a
+    lsr a
+    sta t2
+@add:
+    lda t3
+    clc
+    adc t2
+    sta t3
+    dec t1
+    bne @add
+    sep #$20
+@done:
+    plx
+    rts
+
+; Y = 段, X = 当たった敵。敵の格だけ経験。Lv が上がったら知らせる
+MasteryGain:
+    .a8
+    lda d_type,x
+    rep #$20
+    and #$00FF
+    phx
+    tax
+    lda e_grade,x
+    and #$00FF
+    sta t1
+    sep #$20
+    jsr StageGroup
+    lda mq_lv,x
+    sta t2
+    rep #$20
+    txa
+    asl a
+    tax
+    lda mq_exp,x
+    clc
+    adc t1
+    cmp #9999
+    bcc :+
+    lda #9999
+:   sta mq_exp,x
+    sep #$20
+    phy
+    jsr RecalcStats
+    ply
+    plx
+    phx
+    jsr StageGroup
+    lda mq_lv,x
+    plx
+    cmp t2
+    beq @same
+    lda #SE_JUST            ; 熟練 Lv が上がった
+    jsr PlaySe
+    lda p_x+1
+    sta fx_ax
+    lda p_y+1
+    sec
+    sbc #24
+    sta fx_ay
+    lda #PAL_HEAL
+    sta fx_p
+    jsr SpawnFx
+@same:
+    rts
+
+; ---- 母のカルテ --------------------------------------------------------------
+; X = 崩壊した敵。その種のカルテに 1 行
+ChartWrite:
+    .a8
+    phx
+    lda d_type,x
+    rep #$20
+    and #$00FF
+    tax
+    sep #$20
+    lda chart,x
+    cmp #CHART_MAX
+    bcs :+
+    inc a
+    sta chart,x
+    jsr RecalcStats
+:   plx
+    rts
+
+;               1   2    3    4    5
+mq_need:  .word 0, 40, 120, 300, 600    ; Lv に必要な経験
+stage_group: .byte 0, 0, 0, 0, 2, 1, 1  ; 段 → 熟練の種類
+e_grade:  .byte 0, 1, 1, 2, 3           ; 敵の格 (経験の量)
 
 ; ---- 薬箱 ------------------------------------------------------------------
 MED_HEAL    = 60

@@ -592,13 +592,17 @@ MotherOverdrive:
     lda d_col,x
     bne @gone
     rep #$20
-    lda d_sat,x
+    lda over_amt
+    and #$00FF
     clc
-    adc #OVER_AMOUNT
+    adc d_sat,x
     sta d_sat,x
     cmp d_satmax,x
     bcc @no
     ; ---- 崩壊 ----
+    sep #$20
+    jsr ChartWrite
+    rep #$20
     stz d_sat,x
     lda d_satmax,x          ; 次は 1.5 倍必要
     lsr a

@@ -814,7 +814,8 @@ DrawLine:
 ; ---- セーブ (バッテリーバックアップ) ----------------------------------------
 ;  +0 'C' +1 'E' +2 部屋 +3 X +4 Y +5 ボス撃破 +6..13 入室済み
 ;  +14 暁手 +15 宵手 +16 献立 +17 持っている剣 +18..21 見切り印(種別1-4) +22 薬箱
-;  +23 持っている護符 +24 護符1 +25 護符2 +26 検査用の和
+;  +23 持っている護符 +24 護符1 +25 護符2
+;  +26..31 熟練の経験 +32..35 カルテ(種別1-4) +36 検査用の和
 SaveGame:
     .a8
     lda #'C'
@@ -859,8 +860,22 @@ SaveGame:
     sta f:SRAM+24
     lda am2
     sta f:SRAM+25
+    ldx #$0000
+@q:
+    lda mq_exp,x
+    sta f:SRAM+26,x
+    inx
+    cpx #$0006
+    bne @q
+    ldx #$0000
+@c:
+    lda chart+1,x
+    sta f:SRAM+32,x
+    inx
+    cpx #$0004
+    bne @c
     jsr SaveSum
-    sta f:SRAM+26
+    sta f:SRAM+36
     rts
 
 SaveSum:
@@ -871,7 +886,7 @@ SaveSum:
     clc
     adc f:SRAM+2,x
     inx
-    cpx #24
+    cpx #34
     bne @loop
     rts
 
@@ -885,7 +900,7 @@ HasSave:
     cmp #'E'
     bne @no
     jsr SaveSum
-    cmp f:SRAM+26
+    cmp f:SRAM+36
     bne @no
     sec
     rts
@@ -926,6 +941,21 @@ LoadGame:
     sta am1
     lda f:SRAM+25
     sta am2
+    ldx #$0000
+@q:
+    lda f:SRAM+26,x
+    sta mq_exp,x
+    inx
+    cpx #$0006
+    bne @q
+    stz chart
+    ldx #$0000
+@c:
+    lda f:SRAM+32,x
+    sta chart+1,x
+    inx
+    cpx #$0004
+    bne @c
     stz marks
     ldx #$0000
 @mk:
@@ -953,6 +983,18 @@ NewGame:
     lda #1
     sta am1
     stz am2
+    ldx #$0000
+@q:
+    stz mq_exp,x
+    inx
+    cpx #$0006
+    bne @q
+    ldx #$0000
+@c:
+    stz chart,x
+    inx
+    cpx #$0005
+    bne @c
     ldx #$0000
 @mk:
     stz marks,x
