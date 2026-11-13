@@ -16,7 +16,11 @@ build/audio.inc: tools/gen_audio.py
 	@mkdir -p build
 	$(PYTHON) tools/gen_audio.py build
 
-build/main.o: src/main.s src/enemy.s src/mother.s $(GFX) build/audio.inc Makefile
+build/rooms.inc: tools/gen_world.py
+	@mkdir -p build
+	$(PYTHON) -W ignore tools/gen_world.py build
+
+build/main.o: src/main.s src/enemy.s src/mother.s src/world.s $(GFX) build/audio.inc build/rooms.inc Makefile
 	ca65 -g --cpu 65816 -I build --bin-include-dir build -o $@ -l build/main.lst src/main.s
 
 $(ROM): build/main.o lorom.cfg tools/fix_checksum.py
@@ -24,11 +28,11 @@ $(ROM): build/main.o lorom.cfg tools/fix_checksum.py
 	$(PYTHON) tools/fix_checksum.py $@
 
 test: $(ROM)
-	$(PYTHON) tests/test_m2.py $(ROM)
+	$(PYTHON) tests/test_m3.py $(ROM)
 
 dist: $(ROM)
 	@mkdir -p dist
-	cp $(ROM) dist/cradle-edge-m2.sfc
+	cp $(ROM) dist/cradle-edge-m3.sfc
 
 clean:
 	rm -rf build

@@ -9,10 +9,10 @@
 .smart +
 
 ; ---- 定数 -------------------------------------------------------------------
-MINX        = $1800         ; 移動可能範囲 (8.8)
-MAXX        = $E800
-MINY        = $2800
-MAXY        = $CC00
+MINX        = $0400         ; 画面内に収める範囲 (8.8)。壁は col_map で判定
+MAXX        = $FC00
+MINY        = $1800
+MAXY        = $DE00
 
 NUM_DUMMY   = 6             ; 敵の最大数。配列は2バイト刻み (X=0,2,..)
 DUMMY_END   = NUM_DUMMY*2
@@ -58,7 +58,7 @@ PRIO        = $20           ; OBJ 優先度2
 VRAM_BG1_MAP = $0000
 VRAM_BG3_MAP = $0400
 VRAM_BG1_CHR = $1000
-VRAM_BG3_CHR = $3000
+VRAM_BG3_CHR = $6000
 VRAM_OBJ_CHR = $4000
 
 ; ---- 変数 -------------------------------------------------------------------
@@ -143,6 +143,33 @@ p_charge:    .res 1          ; 溜め
 tpx:         .res 1          ; 敵が狙っている位置
 tpy:         .res 1
 bar_th:      .res 1
+room:        .res 1
+cur_set:     .res 1
+rp:          .res 2
+scp:         .res 2
+bright:      .res 1
+vq_n:        .res 1          ; VRAM 書き込み予約 (番地, 語, 語) x 2
+vq:          .res 12
+vd_src:      .res 2          ; VRAM への DMA 予約 (会話窓用)
+vd_dst:      .res 2
+vd_len:      .res 2
+txt_addr:    .res 2
+txt_line:    .res 2
+cx:          .res 1
+cy:          .res 1
+om_x:        .res 2
+om_y:        .res 2
+oe_x:        .res 2
+oe_y:        .res 2
+room_exit:   .res 4          ; 上下左右の行き先 ($FF = なし)
+room_enter:  .res 1          ; 初入室時の台本 ($FF = なし)。room_exit の直後に置くこと
+boss_dead:   .res 1
+ev_boss:     .res 1
+chk_room:    .res 1          ; 最後に休んだ焚き火
+chk_x:       .res 1
+chk_y:       .res 1
+title_sel:   .res 1
+title_has:   .res 1
 
 .bss
 oam_buf:     .res 512
@@ -177,6 +204,13 @@ d_noregen:   .res DUMMY_END
 d_flip:      .res DUMMY_END
 d_tgt:       .res DUMMY_END
 hud_buf:     .res 128
+col_map:     .res 256
+it_kind:     .res 8
+it_x:        .res 8
+it_y:        .res 8
+it_a:        .res 8
+it_b:        .res 8
+seen:        .res 8
 
 ; ---- マクロ -----------------------------------------------------------------
 .macro VRAM_DMA src, len, dest
@@ -267,11 +301,12 @@ ResetFast:
     sta $420B
 
     ; 画像転送
-    VRAM_DMA BgChr,   BG_CHR_SIZE,   VRAM_BG1_CHR
-    VRAM_DMA BgMap,   $0800,         VRAM_BG1_MAP
-    VRAM_DMA FontChr, FONT_CHR_SIZE, VRAM_BG3_CHR
-    VRAM_DMA HudMap,  $0800,         VRAM_BG3_MAP
-    VRAM_DMA ObjChr,  OBJ_CHR_SIZE,  VRAM_OBJ_CHR
+    VRAM_DMA BgChr,     BG_CHR_SIZE,    VRAM_BG1_CHR
+    VRAM_DMA FontChr,   FONT_CHR_SIZE,  VRAM_BG3_CHR
+    VRAM_DMA WindowChr, 48,             VRAM_BG3_CHR + 77*8
+    VRAM_DMA GlyphChr,  GLYPH_CHR_SIZE, VRAM_BG3_CHR + GLYPH_BASE*8
+    VRAM_DMA HudMap,    $0800,          VRAM_BG3_MAP
+    VRAM_DMA ObjChr,    OBJ_CHR_SIZE,   VRAM_OBJ_CHR
 
     ; パレット
     stz $2121
@@ -283,6 +318,16 @@ ResetFast:
     lda #^Palette
     sta $4304
     ldx #$0200
+    stx $4305
+    lda #$01
+    sta $420B
+    lda #32                 ; 背景パレット 2 本
+    sta $2121
+    ldx #.loword(BgPal)
+    stx $4302
+    lda #^BgPal
+    sta $4304
+    ldx #64
     stx $4305
     lda #$01
     sta $420B
@@ -304,16 +349,11 @@ ResetFast:
     sta $212C
 
     jsr UploadSpc
-    jsr InitGame
-    jsr DrawAll
-    jsr BuildHud
-    lda #$01
-    sta nmi_ready
-
     lda #$81                ; NMI + 自動パッド読み
     sta $4200
-    lda #$0F
-    sta $2100
+Restart:
+    jsr TitleScreen
+    jsr InitGame
 
 ; ---- メインループ -----------------------------------------------------------
 MainLoop:
@@ -339,16 +379,20 @@ MainLoop:
     beq @alive
     dec dead_t
     bne @world
-    jsr InitGame            ; 倒れたら最初から
+    jsr InitGame            ; 倒れたら最後の焚き火から
     bra @draw
 @alive:
     jsr UpdatePlayer
+    jsr CheckExits
     jsr UpdateMother
 @world:
     jsr UpdateEnemies
     jsr UpdateDummies
     jsr BumpDummies
-    jsr UpdateWaves
+    lda ev_boss
+    beq :+
+    jmp BossDefeated
+:
     jsr UpdateFx
     jsr UpdateTimers
     stz pad_new
@@ -434,8 +478,9 @@ NmiFast:
     plb
     lda $4210
     lda nmi_ready
-    beq @skip
-    stz nmi_ready
+    bne :+
+    jmp @skip
+:   stz nmi_ready
 
     ; OAM
     stz $2102
@@ -477,12 +522,45 @@ NmiFast:
     stx $4305
     lda #$01
     sta $420B
+    ; 予約された VRAM 書き込み (文字 1 字ぶん)
+    lda vq_n
+    beq @no_vq
+    stz vq_n
+    ldx vq
+    stx $2116
+    ldx vq+2
+    stx $2118
+    ldx vq+4
+    stx $2118
+    ldx vq+6
+    stx $2116
+    ldx vq+8
+    stx $2118
+    ldx vq+10
+    stx $2118
+@no_vq:
+    ldx vd_len              ; 予約された DMA (会話窓)
+    beq @no_vd
+    ldx vd_dst
+    stx $2116
+    ldx vd_src
+    stx $4302
+    lda #^WindowMap
+    sta $4304
+    ldx vd_len
+    stx $4305
+    lda #$01
+    sta $420B
+    ldx #$0000
+    stx vd_len
+@no_vd:
     ; ジャスト回避の瞬間は画面を暗く
     lda dim_t
     beq :+
-    lda #$08
+    lda bright
+    lsr a
     bra :++
-:   lda #$0F
+:   lda bright
 :   sta $2100
 @skip:
     inc vbl_count
@@ -498,25 +576,25 @@ IrqStub:
     rti
 
 ; ---- 初期化 -----------------------------------------------------------------
+; 最後の焚き火 (chk_*) から再開する。状態を戻して部屋を読み直す
 InitGame:
     .a8
     rep #$20
-    lda #$8000
-    sta p_x
-    lda #$A800
-    sta p_y
-    lda #$6C00
-    sta m_x
-    lda #$B800
-    sta m_y
     lda #HP_MAX
     sta p_hp
     lda rng
     bne :+
     lda #$ACE1
     sta rng
-:   sep #$20
-    lda #$01
+:   stz p_x
+    stz p_y
+    stz m_down
+    sep #$20
+    lda chk_x
+    sta p_x+1
+    lda chk_y
+    sta p_y+1
+    lda #$00
     sta p_face
     sta m_face
     stz p_state
@@ -525,28 +603,17 @@ InitGame:
     stz p_just
     stz p_buf
     stz dead_t
-    stz wave
     stz m_state
     stz combo
     stz hitstop
     stz p_charge
     stz m_inv
     stz m_rev
-    stz m_down
-    stz m_down+1
+    stz ev_boss
     lda #MOM_HP_MAX
     sta m_hp
-    lda #60
-    sta wave_t
     lda #100
     sta m_ji
-    ldx #$0000
-@d:
-    stz d_type,x
-    inx
-    inx
-    cpx #DUMMY_END
-    bne @d
     ldx #$0000
 @h:
     lda HudMap+64,x
@@ -554,12 +621,8 @@ InitGame:
     inx
     cpx #128
     bne @h
-    jsr SetRestSwords
-    lda swA_ang
-    sta swA_prev
-    lda swB_ang
-    sta swB_prev
-    rts
+    lda chk_room
+    jmp ChangeRoom
 
 ; ---- 入力 -------------------------------------------------------------------
 ReadPad:
@@ -648,6 +711,10 @@ UpdatePlayer:
     and #$40                ; Y
     beq :+
     stz p_charge
+    jsr TryInteract         ; 話す・調べる相手がいればそちらを優先
+    bcc @slash
+    rts
+@slash:
     jmp StartAttack
 :   lda pad_new+1
     bpl :+                  ; B
@@ -819,40 +886,6 @@ MovePlayer:
     sta p_y
     sep #$20
 @done:
-    rts
-
-; 木人と重なっていればキャリーを立てる
-PlayerBlocked:
-    clc                     ; M2: 敵はすり抜けられる
-    rts
-    ldx #$0000
-@loop:
-    lda d_dead,x
-    bne @next
-    lda d_x+1,x
-    sec
-    sbc p_x+1
-    bcs :+
-    eor #$FF
-    inc a
-:   cmp #14
-    bcs @next
-    lda d_y+1,x
-    sec
-    sbc p_y+1
-    bcs :+
-    eor #$FF
-    inc a
-:   cmp #10
-    bcs @next
-    sec
-    rts
-@next:
-    inx
-    inx
-    cpx #DUMMY_END
-    bne @loop
-    clc
     rts
 
 ; 待機時の剣: 左右やや後ろに開いて構える
@@ -1223,11 +1256,15 @@ ApplyHit:
     bne @stagger
     lda d_type,x
     cmp #TYPE_SCARE
-    bne @stagger
+    bcc @stagger
     lda d_col,x
     bne @stagger
+    lda d_type,x            ; ボスは崩壊中しかひるまない
+    cmp #TYPE_BOSS
+    beq @armor
     cpy #$0002
     bcs @stagger
+@armor:
     rep #$20
     stz d_vx,x
     stz d_vy,x
@@ -1346,7 +1383,7 @@ UpdateDummies:
     lda d_type,x
     bne :+
     jmp @next
-:
+:   jsr EnemySavePos
     lda d_flash,x
     beq :+
     dec d_flash,x
@@ -1357,7 +1394,12 @@ UpdateDummies:
     beq @move
     dec d_dead,x
     bne @move
-    stz d_type,x            ; 消滅
+    lda d_type,x
+    cmp #TYPE_BOSS
+    bne :+
+    lda #$01
+    sta ev_boss
+:   stz d_type,x            ; 消滅
     jmp @next
 @move:
     rep #$20
@@ -1433,6 +1475,7 @@ UpdateDummies:
     bcs :+
     stz d_vy,x
 :   sep #$20
+    jsr EnemyClip
 @next:
     inx
     inx
@@ -1782,9 +1825,11 @@ DrawAll:
     inx
     cpx #DUMMY_END
     bne @back
+    jsr DrawNpcs
     jsr DrawShadows
 
     ; 残りを画面外へ
+FinishOam:
     ldy oam_idx
 @hide:
     cpy #512
@@ -2068,6 +2113,8 @@ DrawShadows:
 @loop:
     lda d_type,x
     beq @next
+    cmp #TYPE_BOSS
+    beq @next
     lda d_dead,x
     bne @next
     rep #$20
@@ -2125,6 +2172,7 @@ DrawFx:
 
 .include "enemy.s"
 .include "mother.s"
+.include "world.s"
 
 ; ---- HUD --------------------------------------------------------------------
 ; combo (2桁) と last_dmg (3桁) をタイル番号に (タイル1 = '0')
@@ -2307,24 +2355,39 @@ bar_level:  .byte 0, 1, 2, 2, 3, 4, 5, 6, 6, 7, 8    ; 0-10 → 8段階
 
 .include "gfx.inc"
 .include "audio.inc"
+.include "rooms.inc"
+.include "script.inc"
+SetPal:     .incbin "set0.pal"
+            .incbin "set1.pal"
+            .incbin "set2.pal"
+BgPal:      .incbin "bg.pal"
+WindowChr:  .incbin "window.chr"
 Palette:    .incbin "palette.bin"
 FontChr:    .incbin "font.chr"
 HudMap:     .incbin "hud.map"
-BgMap:      .incbin "bg.map"
 
 .segment "BANK1"
 ObjChr:     .incbin "obj.chr"
+SetChr:     .incbin "set0.chr"
+            .incbin "set1.chr"
+            .incbin "set2.chr"
 .segment "BANK2"
 BgChr:      .incbin "bg.chr"
 SpcData:    .incbin "spc.bin"
+GlyphChr:   .incbin "glyph.chr"
+
+.segment "BANK3"
+RoomMaps:   .incbin "rooms.bin"
+WindowMap:  .incbin "window.map"
+BlankMap:   .incbin "blank.map"
 
 ; ---- カートリッジヘッダ -----------------------------------------------------
 .segment "HEADER"
-    .byte "CRADLE EDGE M1       "   ; 21 文字
+    .byte "CRADLE EDGE          "   ; 21 文字
     .byte $30               ; LoROM / FastROM
-    .byte $00               ; ROM のみ
+    .byte $02               ; ROM + RAM + 電池
     .byte $08               ; 256KB
-    .byte $00               ; SRAM なし
+    .byte $03               ; SRAM 8KB
     .byte $00               ; 日本
     .byte $00               ; メーカーコード (未割当)
     .byte $00               ; バージョン

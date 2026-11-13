@@ -88,6 +88,8 @@ class Emu:
         c.retro_get_memory_size.argtypes = [C.c_uint]
         size = c.retro_get_memory_size(2)
         self.ram = (C.c_uint8 * size).from_address(c.retro_get_memory_data(2))
+        ssize = c.retro_get_memory_size(0)   # バッテリーバックアップ
+        self.sram = (C.c_uint8 * ssize).from_address(c.retro_get_memory_data(0)) if ssize else None
 
     def run(self, n=1, buttons=""):
         self.held = {BUTTONS[b] for b in buttons.replace("+", " ").split()}

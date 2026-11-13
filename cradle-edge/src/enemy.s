@@ -6,6 +6,7 @@
 TYPE_RAT    = 1
 TYPE_SNAKE  = 2
 TYPE_SCARE  = 3
+; TYPE_BOSS = 4 は rooms.inc で定義
 
 ES_APPROACH = 0
 ES_WINDUP   = 1
@@ -129,7 +130,8 @@ UpdateEnemies:
 :   lda d_dead,x
     beq :+
     jmp @next
-:   jsr EnemyRegen
+:   jsr EnemySavePos
+    jsr EnemyRegen
     lda d_col,x             ; 崩壊中は動けない
     beq :+
     dec d_col,x
@@ -148,6 +150,7 @@ UpdateEnemies:
     dec d_timer,x           ; 硬直
     bne @next
     stz d_state,x
+    jsr BossSummon
     bra @next
 @windup:
     dec d_timer,x
@@ -172,7 +175,10 @@ UpdateEnemies:
 @approach:
     jsr EnemyApproach
 @next:
-    inx
+    lda d_type,x
+    beq :+
+    jsr EnemyClip
+:   inx
     inx
     cpx #DUMMY_END
     beq :+
@@ -576,54 +582,38 @@ FacePlayerTo:
 @done:
     rts
 
-; 全滅したら次の群れを出す
-UpdateWaves:
+; ボスは硬直が明けるたび、手下が少なければ苔ネズミを呼ぶ
+BossSummon:
     .a8
-    ldx #$0000
-@count:
     lda d_type,x
-    bne @busy
-    inx
-    inx
-    cpx #DUMMY_END
-    bne @count
-    inc wave_t
-    lda wave_t
-    cmp #90
-    bcc @busy
-    stz wave_t
-    rep #$20
-    lda wave
-    and #$00FF
-    asl a
-    tax
-    lda wave_ptrs,x
-    sta t3
-    sep #$20
+    cmp #TYPE_BOSS
+    bne @out
     ldy #$0000
-@spawn:
-    lda (t3),y
-    beq @end
-    pha
+    stz t0
+@count:
+    lda d_type,y
+    beq :+
+    inc t0
+:   iny
     iny
-    lda (t3),y
+    cpy #DUMMY_END
+    bne @count
+    lda t0
+    cmp #3
+    bcs @out
+    phx
+    lda d_x+1,x
+    clc
+    adc #28
     sta t1
-    iny
-    lda (t3),y
+    lda d_y+1,x
+    clc
+    adc #20
     sta t2
-    iny
-    pla
-    phy
+    lda #TYPE_RAT
     jsr SpawnEnemy
-    ply
-    bra @spawn
-@end:
-    inc wave
-    lda wave
-    cmp #NUM_WAVES
-    bcc @busy
-    stz wave
-@busy:
+    plx
+@out:
     rts
 
 ; ---- 敵の描画 ---------------------------------------------------------------
@@ -706,6 +696,10 @@ DrawDummy:
     beq :+
     lda #(PAL_FLASH | PRIO)
     sta t3
+:   lda d_type,x
+    cmp #TYPE_BOSS
+    bne :+
+    jmp DrawBoss
 :   jsr EnemyFrame
     sta t0
     stz t0+1
@@ -778,6 +772,51 @@ DrawDummy:
     jsr AddSprite
     ; fallthrough
 
+; X = ボス。32x32 を 2x2 枚並べる。t3 = パレット
+DrawBoss:
+    .a8
+    lda #$02
+    sta spr_size
+    ldy #$0000
+@part:
+    lda boss_frame_tbl,y
+    sta spr_tile
+    lda boss_frame_tbl+1,y
+    ora t3
+    sta spr_attr
+    rep #$20
+    lda d_x+1,x
+    and #$00FF
+    sec
+    sbc #32
+    sta spr_x
+    lda d_y+1,x
+    and #$00FF
+    sec
+    sbc #48
+    sta spr_y
+    tya
+    and #$0002
+    beq :+
+    lda spr_x
+    clc
+    adc #32
+    sta spr_x
+:   tya
+    and #$0004
+    beq :+
+    lda spr_y
+    clc
+    adc #32
+    sta spr_y
+:   sep #$20
+    jsr AddSprite
+    iny
+    iny
+    cpy #$0008
+    bne @part
+    jmp DrawSatBar
+
 ; X = 敵。飽和が溜まっていれば頭上にゲージ
 DrawSatBar:
     .a8
@@ -826,23 +865,18 @@ DrawSatBar:
     rts
 
 ; ---- 種別ごとの性能 (添字 = 種別) -------------------------------------------
-;                  -      ネズミ  へび    案山子
-e_speed:   .word 0,     $00C0,  $0070,  $0050
-e_atkspd:  .word 0,     $0300,  $0280,  $0200
-e_hp:      .word 0,     45,     60,     140
-e_defh:    .word 0,     2,      1,      3       ; 守 ÷ 2
-e_satmax:  .word 0,     40,     50,     60
-e_range:   .byte 0,     40,     28,     38
-e_windup:  .byte 0,     24,     30,     40
-e_atkfr:   .byte 0,     14,     10,     16
-e_recover: .byte 0,     30,     40,     50
-e_atk:     .byte 0,     12,     15,     20
-e_regen:   .byte 0,     0,      1,      2       ; 32F ごとの再生量
-e_hitw:    .byte 0,     12,     12,     18
-e_hith:    .byte 0,     10,     10,     14
+;                  -      ネズミ  へび    案山子  水車番
+e_speed:   .word 0,     $00C0,  $0070,  $0050,  $0030
+e_atkspd:  .word 0,     $0300,  $0280,  $0200,  $0180
+e_hp:      .word 0,     45,     60,     140,    500
+e_defh:    .word 0,     2,      1,      3,      3   ; 守 ÷ 2
+e_satmax:  .word 0,     40,     50,     60,     90
+e_range:   .byte 0,     40,     28,     38,     52
+e_windup:  .byte 0,     24,     30,     40,     50
+e_atkfr:   .byte 0,     14,     10,     16,     22
+e_recover: .byte 0,     30,     40,     50,     70
+e_atk:     .byte 0,     12,     15,     20,     28
+e_regen:   .byte 0,     0,      1,      2,      3   ; 32F ごとの再生量
+e_hitw:    .byte 0,     12,     12,     18,     34
+e_hith:    .byte 0,     10,     10,     14,     30
 
-NUM_WAVES = 3
-wave_ptrs: .word .loword(wave0), .loword(wave1), .loword(wave2)
-wave0: .byte TYPE_RAT, 60, 70,  TYPE_RAT, 196, 70,  0
-wave1: .byte TYPE_SNAKE, 128, 56,  TYPE_RAT, 40, 120,  TYPE_RAT, 216, 120,  0
-wave2: .byte TYPE_SCARE, 128, 60,  TYPE_SNAKE, 60, 60,  TYPE_SNAKE, 196, 60,  TYPE_RAT, 128, 196,  0

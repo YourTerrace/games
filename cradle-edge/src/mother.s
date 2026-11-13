@@ -224,7 +224,20 @@ UpdateMother:
     rts
 @go:
     .a16
-    lda adx                 ; 離されたら小走り
+    lda m_x
+    sta om_x
+    lda m_y
+    sta om_y
+    lda adx                 ; はぐれたら主人公のそばへ跳ぶ
+    clc
+    adc ady
+    cmp #150
+    bcc :+
+    lda p_x
+    sta m_x
+    lda p_y
+    sta m_y
+:   lda adx                 ; 離されたら小走り
     clc
     adc ady
     cmp #70
@@ -264,7 +277,19 @@ UpdateMother:
     sbc t0
     sta m_y
 @face:
-    lda adx
+    sep #$20                ; 壁にめり込むなら動かない
+    lda m_x+1
+    sta cx
+    lda m_y+1
+    sta cy
+    jsr SolidAt
+    rep #$20
+    bcc :+
+    lda om_x
+    sta m_x
+    lda om_y
+    sta m_y
+:   lda adx
     cmp ady
     sep #$20
     bcc @vert

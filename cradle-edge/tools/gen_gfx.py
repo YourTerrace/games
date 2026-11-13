@@ -439,6 +439,88 @@ def satbar():
     return im
 
 
+# 村人: 1 輪郭, 2 肌, 3 肌影, 4 白髪, 5 服, 6 服影, 7 赤, 8 白, 9 法衣, 10 法衣影, 11 緑, 12 靴
+NPC_PAL = [(0, 0, 0), (32, 24, 28), (236, 188, 148), (196, 140, 104), (200, 200, 208), (160, 112, 72),
+           (112, 76, 48), (200, 72, 64), (244, 240, 228), (216, 224, 240), (160, 172, 200),
+           (72, 152, 96), (88, 56, 36), (0, 0, 0), (0, 0, 0), (0, 0, 0)]
+
+
+def villager(kind):
+    """0=老人 1=おばさん 2=巡回司祭 (正面の立ち絵)"""
+    im = new32()
+    d = ImageDraw.Draw(im)
+    R = d.rectangle
+    body, shade = (5, 6) if kind < 2 else (9, 10)
+    if kind == 0:
+        R([11, 15, 20, 25], fill=body)
+        R([19, 15, 20, 25], fill=shade)
+        R([11, 25, 14, 29], fill=12)
+        R([17, 25, 20, 29], fill=12)
+        d.line([(23, 12), (23, 29)], fill=6)             # 杖
+    else:
+        d.polygon([(11, 15), (20, 15), (23, 28), (8, 28)], fill=body)
+        d.polygon([(19, 15), (20, 15), (23, 28), (21, 28)], fill=shade)
+        R([10, 28, 13, 29], fill=12)
+        R([18, 28, 21, 29], fill=12)
+        if kind == 1:
+            R([13, 18, 18, 26], fill=8)
+        else:
+            R([15, 15, 16, 27], fill=11)                 # 法衣の帯
+    R([8, 17, 10, 22], fill=2)
+    R([21, 17, 23, 22], fill=2)
+    d.ellipse([11, 5, 20, 15], fill=2)
+    if kind == 0:
+        d.pieslice([10, 3, 21, 12], 180, 360, fill=4)
+        d.polygon([(12, 12), (19, 12), (17, 17), (14, 17)], fill=4)   # ひげ
+    elif kind == 1:
+        d.pieslice([9, 2, 22, 13], 180, 360, fill=7)     # ずきん
+        R([10, 7, 11, 12], fill=7)
+        R([20, 7, 21, 12], fill=7)
+    else:
+        d.polygon([(12, 6), (19, 6), (17, 0), (14, 0)], fill=9)       # 司祭の帽子
+        d.line([(12, 6), (19, 6)], fill=11)
+    d.point([(13, 10), (18, 10)], fill=1)
+    d.line([(15, 13), (16, 13)], fill=3)
+    return outline(im)
+
+
+def boss_parts():
+    """茂みに呑まれた水車番 (64x64) を 32x32 の4枚に。"""
+    im = Image.new("P", (64, 64), 0)
+    d = ImageDraw.Draw(im)
+    r = random.Random(3)
+    # 水車の残骸
+    d.line([(6, 50), (58, 14)], fill=12, width=3)
+    d.line([(8, 16), (56, 52)], fill=13, width=3)
+    # 茂みの塊
+    d.ellipse([8, 14, 56, 60], fill=5)
+    d.ellipse([4, 30, 30, 60], fill=5)
+    d.ellipse([34, 30, 60, 60], fill=5)
+    d.ellipse([16, 6, 48, 36], fill=5)
+    for _ in range(90):
+        x, y = r.randrange(6, 58), r.randrange(8, 58)
+        if im.getpixel((x, y)) == 5:
+            c = r.choice((4, 4, 6, 6, 14))
+            d.line([(x, y), (x + r.choice((-2, 2)), y + 1)], fill=c)
+    for _ in range(8):
+        x, y = r.randrange(10, 54), r.randrange(12, 54)
+        if im.getpixel((x, y)) in (4, 5, 6):
+            d.point([(x, y)], fill=9)
+            d.point([(x + 1, y), (x - 1, y), (x, y + 1), (x, y - 1)], fill=7)
+    # 呑まれた顔
+    d.ellipse([24, 18, 40, 34], fill=3)
+    d.pieslice([21, 12, 43, 30], 180, 360, fill=10)     # 麦わら帽
+    d.line([(19, 22), (45, 22)], fill=11, width=2)
+    d.rectangle([27, 25, 29, 27], fill=8)
+    d.rectangle([35, 25, 37, 27], fill=8)
+    d.line([(28, 31), (36, 31)], fill=1)
+    # 蔓の腕
+    d.line([(8, 40), (2, 52), (6, 60)], fill=6, width=3)
+    d.line([(56, 40), (62, 52), (58, 60)], fill=6, width=3)
+    outline(im)
+    return [im.crop((x, y, x + 32, y + 32)) for y in (0, 32) for x in (0, 32)]
+
+
 def shadow():
     im = new32()
     d = ImageDraw.Draw(im)
@@ -490,16 +572,33 @@ for dname in ("down", "up", "side"):
 SWORD_SLOT = [add(f"sword_{i}", sword(i * 22.5), SWORD_A_PAL) for i in range(5)]
 MOM_SLOT = {}
 for dname in ("down", "up", "side"):
-    for pose in ("stand", "walk"):
-        MOM_SLOT[(dname, pose)] = add(f"mom_{dname}_{pose}", mother(dname, pose), MOM_PAL)
+    MOM_SLOT[dname] = add(f"mom_{dname}", mother(dname, "stand"), MOM_PAL)
 MOM_CAST_SLOT = add("mom_cast", mother("down", "cast"), MOM_PAL)
-RAT_SLOT = add("rat", small4(rat), ENEMY_PAL)
-SNAKE_SLOT = add("snake", small4(snake), ENEMY_PAL)
-SCARE_SLOT = [add(f"scare_{i}", scarecrow(i), ENEMY_PAL) for i in range(3)]
 SATBAR_SLOT = add("satbar", satbar(), FX_PAL)
 SHADOW_SLOT = add("shadow", shadow(), FX_PAL)
 SPARK_SLOT = add("spark", sparks(), FX_PAL)
-assert len(SLOTS) <= 32, len(SLOTS)
+assert len(SLOTS) == 24, len(SLOTS)     # 共通 24 枚。残り 8 枚は部屋ごとに差し替える
+
+# 部屋ごとに差し替えるスプライト集 (各8枚ぶん = 4096 バイト)。ネズミは常に先頭
+SET_BASE = 24
+SETS = [
+    ("village", NPC_PAL, [villager(0), villager(1), villager(2)]),
+    ("field", ENEMY_PAL, [small4(rat), small4(snake), scarecrow(0), scarecrow(1), scarecrow(2)]),
+    ("boss", ENEMY_PAL, [small4(rat), small4(snake)] + [new32(), new32()] + boss_parts()),
+]
+for n, (name, pal, imgs) in enumerate(SETS):
+    assert len(imgs) <= 8
+    sh = Image.new("P", (128, 64), 0)
+    for i, im in enumerate(imgs):
+        sh.paste(im, ((i % 4) * 32, (i // 4) * 32))
+    open(f"{OUT}/set{n}.chr", "wb").write(b"".join(tile_bytes(t, 4) for t in img_tiles(sh)))
+    open(f"{OUT}/set{n}.pal", "wb").write(pal_bytes(pal))
+    for i, im in enumerate(imgs):
+        SLOTS.append((f"{name}_{i}", im, pal))
+RAT_SLOT, SNAKE_SLOT = SET_BASE, SET_BASE + 1
+SCARE_SLOT = [SET_BASE + 2, SET_BASE + 3, SET_BASE + 4]
+BOSS_SLOT = [SET_BASE + 4, SET_BASE + 5, SET_BASE + 6, SET_BASE + 7]
+NPC_SLOT = [SET_BASE, SET_BASE + 1, SET_BASE + 2]
 
 
 def slot_tile(i):
@@ -508,14 +607,14 @@ def slot_tile(i):
     return (j // 4) * 64 + (j % 4) * 4, page
 
 
-sheet = Image.new("P", (128, 256), 0)
-for i, (_, im, _) in enumerate(SLOTS):
+sheet = Image.new("P", (128, 192), 0)
+for i, (_, im, _) in enumerate(SLOTS[:24]):
     sheet.paste(im, ((i % 4) * 32, (i // 4) * 32))
 obj_chr = b"".join(tile_bytes(t, 4) for t in img_tiles(sheet))
 open(f"{OUT}/obj.chr", "wb").write(obj_chr)
 
 # 確認用プレビュー
-prev = Image.new("RGB", (128, 256), (64, 96, 64))
+prev = Image.new("RGB", (128, 32 * ((len(SLOTS) + 3) // 4)), (64, 96, 64))
 for i, (_, im, pal) in enumerate(SLOTS):
     rgb = Image.new("RGB", (32, 32))
     src = im.load()
@@ -524,106 +623,7 @@ for i, (_, im, pal) in enumerate(SLOTS):
             v = src[x, y]
             rgb.putpixel((x, y), pal[v] if v else (64, 96, 64))
     prev.paste(rgb, ((i % 4) * 32, (i // 4) * 32))
-prev.resize((128 * 6, 256 * 6), Image.NEAREST).save(f"{OUT}/preview_obj.png")
-
-# ---------------------------------------------------------------- 背景 (鍛冶場裏の稽古場)
-BG_PAL = [
-    (0, 0, 0), (72, 136, 64), (88, 152, 72), (56, 112, 56),   # 草
-    (168, 136, 88), (144, 112, 72), (192, 160, 112),            # 土
-    (120, 124, 136), (88, 92, 108), (152, 156, 168), (56, 60, 76),  # 石
-    (232, 216, 96), (224, 120, 136), (240, 240, 232),           # 花
-    (40, 80, 48), (24, 28, 40),
-]
-rnd = random.Random(1994)
-W, H = 256, 224
-bg = Image.new("P", (W, H), 1)
-p = bg.load()
-
-# 草の模様は 16x16 の 4 種を敷き詰める (タイル重複を稼ぐ)
-variants = []
-for v in range(4):
-    cell = [[1] * 16 for _ in range(16)]
-    for _ in range(10):
-        cell[rnd.randrange(16)][rnd.randrange(16)] = 2
-    for _ in range(5):
-        cell[rnd.randrange(16)][rnd.randrange(16)] = 3
-    if v >= 2:  # 草むら
-        x0, y0 = rnd.randrange(3, 12), rnd.randrange(5, 13)
-        for dx, dy in ((0, 0), (1, -1), (2, 0), (1, -2), (3, -1)):
-            cell[y0 + dy][x0 + dx] = 14 if dx % 2 else 3
-    if v == 3:  # 花
-        x0, y0 = rnd.randrange(2, 13), rnd.randrange(2, 13)
-        cell[y0][x0] = 11
-        for dx, dy in ((1, 0), (-1, 0), (0, 1), (0, -1)):
-            cell[y0 + dy][x0 + dx] = 12 if (x0 + y0) % 2 else 13
-    variants.append(cell)
-for cy in range(H // 16):
-    for cx in range(W // 16):
-        cell = variants[rnd.choice((0, 0, 0, 1, 1, 2, 3))]
-        for y in range(16):
-            for x in range(16):
-                p[cx * 16 + x, cy * 16 + y] = cell[y][x]
-
-# 土の稽古場 (楕円、縁はディザ)
-dirt_tex = [[4] * 16 for _ in range(16)]
-for _ in range(14):
-    dirt_tex[rnd.randrange(16)][rnd.randrange(16)] = 5
-for _ in range(8):
-    dirt_tex[rnd.randrange(16)][rnd.randrange(16)] = 6
-for y in range(H):
-    for x in range(W):
-        e = ((x - 128) / 92.0) ** 2 + ((y - 122) / 62.0) ** 2
-        if e < 0.86 or (e < 1.0 and (x + y) % 2 == 0):
-            p[x, y] = dirt_tex[y % 16][x % 16]
-
-
-def stone(x0, y0, w, h, face=False):
-    for y in range(y0, y0 + h):
-        for x in range(x0, x0 + w):
-            bx, by = x % 16, y % 8
-            row = (y // 8) % 2
-            bx = (bx + 8 * row) % 16
-            c = 7
-            if by == 7 or bx == 15:
-                c = 10
-            elif by == 0 or bx == 0:
-                c = 9
-            elif (bx * 7 + by * 13 + row * 5) % 23 == 0:
-                c = 8
-            if face and y >= y0 + h - 8:
-                c = 8 if c == 7 else 10 if c == 10 else 7
-            p[x, y] = c
-
-
-stone(0, 0, W, 24, face=True)      # 上の壁 (HUD の下地)
-stone(0, H - 16, W, 16)            # 下
-stone(0, 24, 16, H - 40)           # 左
-stone(W - 16, 24, 16, H - 40)      # 右
-for x in range(16, W - 16):        # 壁の影
-    for y in range(24, 27):
-        if (x + y) % 2 == 0:
-            p[x, y] = 14
-for y in range(24, H - 16):
-    for x in (16, 17):
-        if (x + y) % 2 == 0:
-            p[x, y] = 14
-
-tiles, tmap, index = [], [], {}
-for t in img_tiles(bg):
-    b = tile_bytes(t, 4)
-    if b not in index:
-        index[b] = len(tiles)
-        tiles.append(b)
-    tmap.append(index[b])
-assert len(tiles) <= 512, len(tiles)
-open(f"{OUT}/bg.chr", "wb").write(b"".join(tiles))
-full = [0] * (32 * 32)
-for i, t in enumerate(tmap):
-    full[(i // 32) * 32 + i % 32] = t | (2 << 10)  # パレット2
-open(f"{OUT}/bg.map", "wb").write(b"".join(bytes((v & 0xFF, v >> 8)) for v in full))
-rgb = Image.new("RGB", (W, H))
-rgb.putdata([BG_PAL[v] for v in bg.getdata()])
-rgb.resize((W * 3, H * 3), Image.NEAREST).save(f"{OUT}/preview_bg.png")
+prev.resize((prev.width * 4, prev.height * 4), Image.NEAREST).save(f"{OUT}/preview_obj.png")
 
 # ---------------------------------------------------------------- フォント / HUD (BG3, 2bpp)
 FONT = {
@@ -677,13 +677,11 @@ text(1, 1, "GLEN")
 text(1, 2, "MOM")
 text(23, 1, "DMG 000")
 text(23, 2, "HIT  00")
-text(1, 26, "Y:SLASH B:DODGE A:HEAL X:OVER")
 open(f"{OUT}/hud.map", "wb").write(b"".join(bytes((v & 0xFF, v >> 8)) for v in hud))
 
 # ---------------------------------------------------------------- パレット (CGRAM 256色)
 cg = [(0, 0, 0)] * 256
 cg[0:4] = [(0, 0, 0), (255, 255, 255), (16, 16, 32), (255, 224, 96)]
-cg[32:48] = BG_PAL
 for n, pal in ((0, HERO_PAL), (1, MOM_PAL), (2, SWORD_A_PAL), (3, SWORD_B_PAL), (4, ENEMY_PAL),
                (5, FLASH_PAL), (6, HEAL_PAL), (7, FX_PAL)):
     cg[128 + n * 16:128 + n * 16 + 16] = pal
@@ -725,9 +723,11 @@ L.append("")
 L.append("; 母: 向き(下,上,左,右) x (立ち,歩き) = tile, flags / 最後に詠唱")
 L.append("mom_frame_tbl:")
 for dname, flip in (("down", 0), ("up", 0), ("side", 0x40), ("side", 0)):
-    L.append("  .byte " + ", ".join(entry(MOM_SLOT[(dname, pz)], flip) for pz in ("stand", "walk")))
+    L.append("  .byte " + ", ".join(entry(MOM_SLOT[dname], flip) for pz in ("stand", "walk")))
 L.append(f"mom_cast_frame: .byte {entry(MOM_CAST_SLOT)}")
 L.append("scare_frame_tbl: .byte " + ", ".join(entry(x) for x in SCARE_SLOT))
+L.append("boss_frame_tbl: .byte " + ", ".join(entry(x) for x in BOSS_SLOT))
+L.append("npc_frame_tbl: .byte " + ", ".join(entry(x) for x in NPC_SLOT))
 L.append("quad_tile: .byte 0, 2, 32, 34   ; 32x32 スロット内の 16x16 コマ")
 for nm, slot in (("RAT", RAT_SLOT), ("SNAKE", SNAKE_SLOT), ("SATBAR", SATBAR_SLOT),
                  ("SHADOW", SHADOW_SLOT), ("SPARK", SPARK_SLOT)):
@@ -735,8 +735,7 @@ for nm, slot in (("RAT", RAT_SLOT), ("SNAKE", SNAKE_SLOT), ("SATBAR", SATBAR_SLO
     L.append(f"{nm}_TILE = ${t:02X}")
     L.append(f"{nm}_NAME = ${page:02X}")
 L.append(f"BAR_TILE = {BAR_BASE}")
-L.append(f"BG_CHR_SIZE = {len(tiles) * 32}")
 L.append(f"FONT_CHR_SIZE = {len(font_chr)}")
 L.append(f"OBJ_CHR_SIZE = {len(obj_chr)}")
 open(f"{OUT}/gfx.inc", "w").write("\n".join(L) + "\n")
-print(f"gfx: {len(SLOTS)} obj slots, {len(tiles)} bg tiles")
+print(f"gfx: {len(SLOTS)} common obj slots, {len(SETS)} sets")
