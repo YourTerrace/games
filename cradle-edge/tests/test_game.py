@@ -185,6 +185,17 @@ check("Y を押し続けると溜まる", b("p_charge") >= 36, f"charge={b('p_ch
 emu.run(8)
 check("離すと溜め斬り", b("p_stage") in (5, 6), f"stage={b('p_stage')}")
 emu.run(60)
+poke_w("p_hp", 40)
+med0 = b("med")
+emu.run(2, "L")
+emu.run(4)
+check("L で傷薬を使うと HP が戻る", b("med") == med0 - 1 and w("p_hp") == 100, f"med {med0}->{b('med')} hp={w('p_hp')}")
+emu.run(2, "SELECT")
+emu.run(2)
+check("SELECT で薬の種類が切り替わる", b("med_sel") == 1)
+emu.run(2, "SELECT")
+emu.run(2, "SELECT")
+emu.run(2)
 
 # 以降は道中を急ぐ: HP を書き戻しながら北へ
 def rush_up(target_room):

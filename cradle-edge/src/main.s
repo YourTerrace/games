@@ -182,6 +182,9 @@ p_justm:     .res 1          ; 見切った攻撃をジャスト回避した
 sp_mask:     .res 1          ; 繁り特効の手
 menu_cur:    .res 1
 menu_line:   .res 1
+kit:         .res 1          ; 薬箱の組み合わせ
+med:         .res 3          ; 傷薬 / 慈力水 / 気付け薬 の残り
+med_sel:     .res 1
 
 .bss
 oam_buf:     .res 512
@@ -602,6 +605,7 @@ IrqStub:
 InitGame:
     .a8
     jsr RecalcStats
+    jsr RefillKit
     rep #$20
     lda #HP_MAX
     sta p_hp
@@ -714,6 +718,7 @@ UpdatePlayer:
     beq :+
     dec p_just
 :   jsr MotherCommands
+    jsr UseMedicine
     lda p_state
     cmp #ST_HURT
     bne :+
@@ -2249,18 +2254,16 @@ BuildHud:
     ldx #64 + 13*2
     lda #10
     jsr DrawBar
-    lda combo
-    sta $4204
-    stz $4205
-    lda #10
-    sta $4206
-    jsr DivWait
-    lda $4214
+    lda med_sel             ; 薬: 種類の頭文字と残り (L:H 3)
+    rep #$20
+    and #$00FF
+    tax
+    sep #$20
+    lda med_letter,x
+    sta hud_buf+64+25*2
+    lda med,x
     inc a
-    sta hud_buf+64+28*2
-    lda $4216
-    inc a
-    sta hud_buf+64+29*2
+    sta hud_buf+64+27*2
     rep #$20
     lda last_dmg
     cmp #1000

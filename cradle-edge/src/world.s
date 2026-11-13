@@ -515,7 +515,11 @@ TryInteract:
     beq @fire
     cmp #O_CHEST
     bne @talk
-    ldy it_a,x              ; 箱: 剣が入っていれば手に入れる
+    lda it_a,x              ; 箱: 剣が入っていれば手に入れる
+    rep #$20
+    and #$00FF
+    tay
+    sep #$20
     lda own
     and bit_tbl,y
     bne @empty
@@ -728,7 +732,7 @@ DrawLine:
 
 ; ---- セーブ (バッテリーバックアップ) ----------------------------------------
 ;  +0 'C' +1 'E' +2 部屋 +3 X +4 Y +5 ボス撃破 +6..13 入室済み
-;  +14 暁手 +15 宵手 +16 献立 +17 持っている剣 +18..21 見切り印(種別1-4) +22 検査用の和
+;  +14 暁手 +15 宵手 +16 献立 +17 持っている剣 +18..21 見切り印(種別1-4) +22 薬箱 +23 検査用の和
 SaveGame:
     .a8
     lda #'C'
@@ -765,8 +769,10 @@ SaveGame:
     inx
     cpx #$0004
     bne @mk
-    jsr SaveSum
+    lda kit
     sta f:SRAM+22
+    jsr SaveSum
+    sta f:SRAM+23
     rts
 
 SaveSum:
@@ -777,7 +783,7 @@ SaveSum:
     clc
     adc f:SRAM+2,x
     inx
-    cpx #20
+    cpx #21
     bne @loop
     rts
 
@@ -791,7 +797,7 @@ HasSave:
     cmp #'E'
     bne @no
     jsr SaveSum
-    cmp f:SRAM+22
+    cmp f:SRAM+23
     bne @no
     sec
     rts
@@ -824,6 +830,8 @@ LoadGame:
     sta meal
     lda f:SRAM+17
     sta own
+    lda f:SRAM+22
+    sta kit
     stz marks
     ldx #$0000
 @mk:
@@ -843,6 +851,8 @@ NewGame:
     stz meal
     lda #%0011
     sta own
+    stz kit
+    stz med_sel
     ldx #$0000
 @mk:
     stz marks,x

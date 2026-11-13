@@ -676,7 +676,7 @@ def text(col, row, s):
 text(1, 1, "GLEN")
 text(1, 2, "MOM")
 text(23, 1, "DMG 000")
-text(23, 2, "HIT  00")
+text(23, 2, "L:      ")
 open(f"{OUT}/hud.map", "wb").write(b"".join(bytes((v & 0xFF, v >> 8)) for v in hud))
 
 # ---------------------------------------------------------------- パレット (CGRAM 256色)

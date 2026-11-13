@@ -200,7 +200,9 @@ PrepMenu:
     bra @loop
 @act:
     lda pad_new+1
-    bmi @exit               ; B
+    and #$90                ; B / START で終える
+    bne @exit
+    lda pad_new+1
     and #$43                ; Y / 左右
     bne @change
     lda pad_new
@@ -212,8 +214,14 @@ PrepMenu:
     beq @swB
     cmp #2
     beq @meal
+    lda kit                 ; 薬箱
+    inc a
+    and #$03
+    sta kit
+    bra @redraw
 @exit:
     jsr RecalcStats
+    jsr RefillKit
     rep #$20
     lda #.loword(BlankMap)
     sta vd_src
@@ -277,7 +285,7 @@ MenuLine:
     cmp #1
     beq @b
     cmp #2
-    beq @m
+    bcs @m
     rts
 @a:
     lda eqA
@@ -290,9 +298,17 @@ MenuLine:
     adc #SCR_SW0
     jmp DrawLine
 @m:
+    lda menu_line
+    cmp #3
+    beq @k
     lda meal
     clc
     adc #SCR_MEAL0
+    jmp DrawLine
+@k:
+    lda kit
+    clc
+    adc #SCR_KIT0
     jmp DrawLine
 
 ; menu_line の行頭の VRAM 番地を txt_addr に
@@ -309,6 +325,114 @@ MenuAddr:
     sta txt_addr
     sep #$20
     rts
+
+; ---- 薬箱 ------------------------------------------------------------------
+MED_HEAL    = 60
+MED_JI      = 50
+
+; 組み合わせどおりに詰め直す (焚き火で休んだ時・やり直す時)
+RefillKit:
+    .a8
+    lda kit
+    rep #$20
+    and #$00FF
+    tax
+    sep #$20
+    lda kit_h,x
+    sta med
+    lda kit_j,x
+    sta med+1
+    lda kit_r,x
+    sta med+2
+    rts
+
+; SELECT で種類を切り替え、L で使う
+UseMedicine:
+    .a8
+    lda pad_new+1
+    and #$20                ; SELECT
+    beq @use
+    lda med_sel
+    inc a
+    cmp #3
+    bcc :+
+    lda #0
+:   sta med_sel
+    lda #SE_DENY
+    jmp PlaySe
+@use:
+    lda pad_new
+    and #$20                ; L
+    bne :+
+    rts
+:   lda med_sel
+    rep #$20
+    and #$00FF
+    tax
+    sep #$20
+    lda med,x
+    beq @deny
+    cpx #1
+    beq @ji
+    bcs @rev
+    rep #$20                ; 傷薬: 最大までしか戻らない (過剰生命にはならない)
+    lda p_hp
+    cmp #HP_MAX
+    bcs @deny16
+    clc
+    adc #MED_HEAL
+    cmp #HP_MAX
+    bcc :+
+    lda #HP_MAX
+:   sta p_hp
+    sep #$20
+    bra @used
+@ji:
+    lda m_ji
+    cmp #100
+    bcs @deny
+    clc
+    adc #MED_JI
+    cmp #100
+    bcc :+
+    lda #100
+:   sta m_ji
+    bra @used
+@rev:
+    lda m_down              ; 気付け薬: 倒れた母をすぐ起こす
+    ora m_down+1
+    beq @deny
+    stz m_down
+    stz m_down+1
+    lda #MOM_HP_MAX/2
+    sta m_hp
+@used:
+    lda med_sel
+    rep #$20
+    and #$00FF
+    tax
+    sep #$20
+    dec med,x
+    lda p_x+1
+    sta fx_ax
+    lda p_y+1
+    sta fx_ay
+    lda #PAL_HEAL
+    sta fx_p
+    jsr SpawnFx
+    lda #SE_HEAL
+    jmp PlaySe
+@deny16:
+    sep #$20
+@deny:
+    lda #SE_DENY
+    jmp PlaySe
+
+;            傷薬3慈1  傷2慈2  傷2気2  傷4
+kit_h:   .byte 3,       2,      2,      4
+kit_j:   .byte 1,       2,      0,      0
+kit_r:   .byte 0,       0,      2,      0
+med_letter: .byte 18, 20, 28          ; HUD フォントの H / J / R
 
 ;             鉄塊「暁」 鉄塊「宵」 苔断ち  水車の鉄軸
 sw_atk:  .byte 12,        10,        16,     22
