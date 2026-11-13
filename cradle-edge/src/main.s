@@ -14,23 +14,37 @@ MAXX        = $E800
 MINY        = $2800
 MAXY        = $CC00
 
-NUM_DUMMY   = 3             ; 配列は2バイト刻み (X=0,2,4)
+NUM_DUMMY   = 6             ; 敵の最大数。配列は2バイト刻み (X=0,2,..)
 DUMMY_END   = NUM_DUMMY*2
 DUMMY_HP    = 100
 DUMMY_DEF   = 4
-DEAD_TIME   = 120           ; 壊れてから復活まで
-DEAD_VISIBLE= 60            ; これより大きい間は点滅しながら飛ぶ
+DEAD_TIME   = 40            ; 倒れてから消えるまで (点滅しながら吹き飛ぶ)
+DEAD_VISIBLE= 0
 
 NUM_FX      = 4
 
 ST_FREE     = 0
 ST_ATTACK   = 1
 ST_DODGE    = 2
+ST_HURT     = 3
+
+SE_SLASH    = 1
+SE_HIT      = 2
+SE_HEAVY    = 3
+SE_JUST     = 4
+SE_HURT     = 5
+SE_CAST     = 6
+SE_HEAL     = 7
+SE_COLLAPSE = 8
+SE_DENY     = 9
+SE_DODGE    = 10
 
 PAL_HERO    = 0 << 1
 PAL_SWORD_A = 2 << 1
 PAL_SWORD_B = 3 << 1
-PAL_DUMMY   = 4 << 1
+PAL_MOM     = 1 << 1
+PAL_ENEMY   = 4 << 1
+PAL_HEAL    = 6 << 1
 PAL_FLASH   = 5 << 1
 PAL_FX      = 7 << 1
 PRIO        = $20           ; OBJ 優先度2
@@ -41,8 +55,6 @@ VRAM_BG3_MAP = $0400
 VRAM_BG1_CHR = $1000
 VRAM_BG3_CHR = $3000
 VRAM_OBJ_CHR = $4000
-HUD_COMBO    = VRAM_BG3_MAP + 32*1 + 8
-HUD_DMG      = VRAM_BG3_MAP + 32*1 + 17
 
 ; ---- 変数 -------------------------------------------------------------------
 .zeropage
@@ -94,7 +106,30 @@ dodge_vy:    .res 2
 combo:       .res 1
 combo_t:     .res 1
 last_dmg:    .res 2
-hud_digits:  .res 5
+tick:        .res 1
+p_hp:        .res 2
+p_inv:       .res 1          ; 被弾後の無敵
+p_just:      .res 1          ; ジャスト回避後、返し刃を出せる残り時間
+just_idx:    .res 2
+dim_t:       .res 1
+dead_t:      .res 1
+wave:        .res 1
+wave_t:      .res 1
+adx:         .res 2
+ady:         .res 2
+near_idx:    .res 2
+fx_ax:       .res 1
+fx_ay:       .res 1
+fx_p:        .res 1
+se_count:    .res 1
+m_x:         .res 2
+m_y:         .res 2
+m_face:      .res 1
+m_state:     .res 1
+m_timer:     .res 1
+m_anim:      .res 1
+m_ji:        .res 1          ; 慈力
+m_target:    .res 2
 
 .bss
 oam_buf:     .res 512
@@ -112,6 +147,22 @@ d_bump:      .res DUMMY_END
 fx_t:        .res NUM_FX
 fx_x:        .res NUM_FX
 fx_y:        .res NUM_FX
+fx_pal:      .res NUM_FX
+d_maxhp:     .res DUMMY_END
+d_sat:       .res DUMMY_END
+d_satmax:    .res DUMMY_END
+d_def:       .res DUMMY_END
+d_avx:       .res DUMMY_END
+d_avy:       .res DUMMY_END
+d_type:      .res DUMMY_END  ; 以下バイト
+d_state:     .res DUMMY_END
+d_timer:     .res DUMMY_END
+d_stun:      .res DUMMY_END
+d_col:       .res DUMMY_END
+d_atkdone:   .res DUMMY_END
+d_noregen:   .res DUMMY_END
+d_flip:      .res DUMMY_END
+hud_buf:     .res 128
 
 ; ---- マクロ -----------------------------------------------------------------
 .macro VRAM_DMA src, len, dest
@@ -238,6 +289,7 @@ ResetFast:
     lda #$15                ; BG1 + BG3 + OBJ
     sta $212C
 
+    jsr UploadSpc
     jsr InitGame
     jsr DrawAll
     jsr BuildHud
@@ -261,29 +313,95 @@ MainLoop:
     lda hitstop
     beq @update
     dec hitstop
-    ; ヒットストップ中も先行入力だけは拾う
-    lda p_state
-    cmp #ST_ATTACK
-    bne @draw
-    lda pad_new+1
+    lda pad_new+1           ; ヒットストップ中も Y の先行入力は拾う
     and #$40
     beq @draw
     lda #$01
     sta p_buf
     bra @draw
 @update:
+    inc tick
+    lda dead_t
+    beq @alive
+    dec dead_t
+    bne @world
+    jsr InitGame            ; 倒れたら最初から
+    bra @draw
+@alive:
     jsr UpdatePlayer
+    jsr UpdateMother
+@world:
+    jsr UpdateEnemies
     jsr UpdateDummies
     jsr BumpDummies
+    jsr UpdateWaves
     jsr UpdateFx
     jsr UpdateTimers
+    stz pad_new
+    stz pad_new+1
 @draw:
-    jsr UpdateShake
+    lda dim_t
+    beq :+
+    dec dim_t
+:   jsr UpdateShake
     jsr DrawAll
     jsr BuildHud
     lda #$01
     sta nmi_ready
-    bra MainLoop
+    jmp MainLoop
+
+; 音源の起動プログラム (IPL) に話しかけて、ドライバと波形を送り込む
+UploadSpc:
+    .a8
+:   lda $2140
+    cmp #$AA
+    bne :-
+:   lda $2141
+    cmp #$BB
+    bne :-
+    ldx #SPC_BASE
+    stx $2142
+    lda #$01
+    sta $2141
+    lda #$CC
+    sta $2140
+:   cmp $2140
+    bne :-
+    stz t0                  ; 通し番号
+    ldx #$0000
+@byte:
+    lda f:SpcData,x
+    sta $2141
+    lda t0
+    sta $2140
+:   cmp $2140
+    bne :-
+    inc t0
+    inx
+    cpx #SPC_SIZE
+    bne @byte
+    ldx #SPC_BASE           ; 実行開始番地
+    stx $2142
+    stz $2141
+    lda t0
+    clc
+    adc #$02
+    bne :+
+    lda #$02
+:   sta $2140
+:   cmp $2140
+    bne :-
+    stz se_count
+    rts
+
+; A = 効果音番号。APU のポート0に番号、ポート1に通し番号を書く
+PlaySe:
+    .a8
+    sta $2140
+    inc se_count
+    lda se_count
+    sta $2141
+    rts
 
 ; ---- NMI --------------------------------------------------------------------
 Nmi:
@@ -329,33 +447,29 @@ NmiFast:
     xba
     sta $210D
 
-    ; HUD の数字
+    ; HUD 2行ぶんを転送
     lda #$80
     sta $2115
-    ldx #HUD_COMBO
+    ldx #VRAM_BG3_MAP + 32
     stx $2116
-    lda hud_digits+0
-    sta $2118
-    lda #$20
-    sta $2119
-    lda hud_digits+1
-    sta $2118
-    lda #$20
-    sta $2119
-    ldx #HUD_DMG
-    stx $2116
-    lda hud_digits+2
-    sta $2118
-    lda #$20
-    sta $2119
-    lda hud_digits+3
-    sta $2118
-    lda #$20
-    sta $2119
-    lda hud_digits+4
-    sta $2118
-    lda #$20
-    sta $2119
+    lda #$01
+    sta $4300
+    lda #$18
+    sta $4301
+    ldx #hud_buf
+    stx $4302
+    stz $4304
+    ldx #128
+    stx $4305
+    lda #$01
+    sta $420B
+    ; ジャスト回避の瞬間は画面を暗く
+    lda dim_t
+    beq :+
+    lda #$08
+    bra :++
+:   lda #$0F
+:   sta $2100
 @skip:
     inc vbl_count
     rep #$30
@@ -371,49 +485,59 @@ IrqStub:
 
 ; ---- 初期化 -----------------------------------------------------------------
 InitGame:
+    .a8
     rep #$20
     lda #$8000
     sta p_x
     lda #$A800
     sta p_y
+    lda #$6C00
+    sta m_x
+    lda #$B800
+    sta m_y
+    lda #HP_MAX
+    sta p_hp
+    lda rng
+    bne :+
     lda #$ACE1
     sta rng
-    sep #$20
+:   sep #$20
     lda #$01
     sta p_face
+    sta m_face
+    stz p_state
+    stz p_timer
+    stz p_inv
+    stz p_just
+    stz p_buf
+    stz dead_t
+    stz wave
+    stz m_state
+    stz combo
+    stz hitstop
+    lda #60
+    sta wave_t
+    lda #100
+    sta m_ji
     ldx #$0000
 @d:
-    jsr RespawnDummy
-    stz d_flash,x
+    stz d_type,x
     inx
     inx
     cpx #DUMMY_END
     bne @d
+    ldx #$0000
+@h:
+    lda HudMap+64,x
+    sta hud_buf,x
+    inx
+    cpx #128
+    bne @h
     jsr SetRestSwords
     lda swA_ang
     sta swA_prev
     lda swB_ang
     sta swB_prev
-    rts
-
-; X = 木人の添字
-RespawnDummy:
-    rep #$20
-    lda dummy_home_x,x
-    sta d_x,x
-    lda dummy_home_y,x
-    sta d_y,x
-    stz d_vx,x
-    stz d_vy,x
-    lda #DUMMY_HP
-    sta d_hp,x
-    sep #$20
-    stz d_dead,x
-    stz d_bump,x
-    lda #$FF
-    sta d_hitid,x
-    lda #12
-    sta d_flash,x
     rts
 
 ; ---- 入力 -------------------------------------------------------------------
@@ -429,6 +553,7 @@ ReadPad:
     sta pad
     eor pad_prev
     and pad
+    ora pad_new             ; ヒットストップ中の押下も次の更新まで覚えておく
     sta pad_new
     sep #$20
     rts
@@ -474,6 +599,19 @@ Rand:
 ;  プレイヤー
 ; ============================================================================
 UpdatePlayer:
+    .a8
+    lda p_inv
+    beq :+
+    dec p_inv
+:   lda p_just
+    beq :+
+    dec p_just
+:   jsr MotherCommands
+    lda p_state
+    cmp #ST_HURT
+    bne :+
+    jmp PlayerHurt
+:
     lda swA_ang
     sta swA_prev
     lda swB_ang
@@ -600,6 +738,8 @@ MovePlayer:
 
 ; 木人と重なっていればキャリーを立てる
 PlayerBlocked:
+    clc                     ; M2: 敵はすり抜けられる
+    rts
     ldx #$0000
 @loop:
     lda d_dead,x
@@ -654,6 +794,7 @@ SetRestSwords:
 
 ; ---- 連斬 -------------------------------------------------------------------
 StartAttack:
+    .a8
     lda pad+1
     and #$0F
     beq :+
@@ -661,10 +802,19 @@ StartAttack:
 :   lda #ST_ATTACK
     sta p_state
     stz p_stage
-    stz p_timer
+    lda p_just              ; ジャスト回避の直後なら「返し刃」
+    beq :+
+    stz p_just
+    ldx just_idx
+    jsr FacePlayerTo
+    lda #4
+    sta p_stage
+:   stz p_timer
     stz p_buf
     inc swing_id
     stz p_anim
+    lda #SE_SLASH
+    jsr PlaySe
     ; このフレームから構えを見せる
 
 PlayerAttack:
@@ -716,6 +866,8 @@ PlayerAttack:
     stz p_timer
     stz p_buf
     inc swing_id
+    lda #SE_SLASH
+    jsr PlaySe
     lda pad+1               ; 段の合間に向き直せる
     and #$0F
     beq @done
@@ -815,6 +967,8 @@ StepTimesT:
 AttackHit:
     ldx #$0000
 @loop:
+    lda d_type,x
+    beq @next
     lda d_dead,x
     bne @next
     lda d_hitid,x
@@ -871,8 +1025,9 @@ AttackHit:
     bne @loop
     rts
 
-; X = 当たった木人
+; X = 当たった敵
 ApplyHit:
+    .a8
     lda swing_id
     sta d_hitid,x
     phx
@@ -894,19 +1049,39 @@ ApplyHit:
     lsr a
     lsr a
     lsr a
-    sec
-    sbc #DUMMY_DEF/2
     clc
     adc t0
+    sec
+    sbc d_def,x
+    bmi @min
+    bne @pos
+@min:
+    lda #$0001
+@pos:
+    sta t3
+    lda p_hp                ; 過剰生命があれば +25%
+    cmp #HP_MAX+1
+    bcc :+
+    lda t3
+    lsr a
+    lsr a
+    clc
+    adc t3
+    sta t3
+:   sep #$20
+    lda d_col,x             ; 崩壊中の敵には2倍
+    rep #$20
+    beq :+
+    asl t3
+:   lda t3
     sta last_dmg
     lda d_hp,x
     sec
-    sbc last_dmg
+    sbc t3
     beq @dead
     bpl @alive
 @dead:
-    lda #$0000
-    sta d_hp,x
+    stz d_hp,x
     sep #$20
     lda #DEAD_TIME
     sta d_dead,x
@@ -958,13 +1133,36 @@ ApplyHit:
     sep #$20
     lda #12
     sta d_flash,x
+    ; 案山子は崩壊中か3段目以降でないとひるまない
+    lda d_dead,x
+    bne @stagger
+    lda d_type,x
+    cmp #TYPE_SCARE
+    bne @stagger
+    lda d_col,x
+    bne @stagger
+    cpy #$0002
+    bcs @stagger
+    rep #$20
+    stz d_vx,x
+    stz d_vy,x
+    sep #$20
+    bra @fx
+@stagger:
+    lda #20
+    sta d_stun,x
+    stz d_state,x
+@fx:
     lda atk_hitstop,y
     sta hitstop
+    lda #SE_HIT
     cpy #$0003
-    bne :+
+    bcc :+
     lda #10
     sta shake_t
-:   jsr SpawnSparkAtDummy
+    lda #SE_HEAVY
+:   jsr PlaySe
+    jsr SpawnSparkAtDummy
     lda combo
     cmp #99
     bcs :+
@@ -1010,8 +1208,22 @@ StartDodge:
     lda #ST_DODGE
     sta p_state
     stz p_timer
+    stz p_buf
+    lda #SE_DODGE
+    jsr PlaySe
 
 PlayerDodge:
+    .a8
+    lda p_just              ; ジャスト回避が成立していれば Y で返し刃へ
+    beq @no_counter
+    lda p_buf
+    bne @counter
+    lda pad_new+1
+    and #$40
+    beq @no_counter
+@counter:
+    jmp StartAttack
+@no_counter:
     rep #$20
     lda dodge_vx
     sta vx
@@ -1043,8 +1255,13 @@ PlayerDodge:
 ;  木人
 ; ============================================================================
 UpdateDummies:
+    .a8
     ldx #$0000
 @loop:
+    lda d_type,x
+    bne :+
+    jmp @next
+:
     lda d_flash,x
     beq :+
     dec d_flash,x
@@ -1055,7 +1272,7 @@ UpdateDummies:
     beq @move
     dec d_dead,x
     bne @move
-    jsr RespawnDummy
+    stz d_type,x            ; 消滅
     jmp @next
 @move:
     rep #$20
@@ -1141,15 +1358,34 @@ UpdateDummies:
 
 ; 木人どうしの玉突き
 BumpDummies:
+    .a8
     ldx #$0000
-    ldy #$0002
+@i:
+    txy
+    iny
+    iny
+@j:
+    cpy #DUMMY_END
+    bcs @ni
+    lda d_type,x
+    beq @ni
+    lda d_type,y
+    beq @nj
+    phx
+    phy
     jsr BumpPair
-    ldx #$0000
-    ldy #$0004
-    jsr BumpPair
-    ldx #$0002
-    ldy #$0004
-    ; fallthrough
+    ply
+    plx
+@nj:
+    iny
+    iny
+    bra @j
+@ni:
+    inx
+    inx
+    cpx #DUMMY_END-2
+    bcc @i
+    rts
 
 ; X, Y = 木人の添字
 BumpPair:
@@ -1287,8 +1523,20 @@ DummySpeed:
 ; ============================================================================
 ;  エフェクト・タイマー
 ; ============================================================================
-; X = 木人。空きスロットに火花を出す
+; X = 敵。その位置に火花
 SpawnSparkAtDummy:
+    .a8
+    lda d_x+1,x
+    sta fx_ax
+    lda d_y+1,x
+    sta fx_ay
+    lda #PAL_FX
+    sta fx_p
+    ; fallthrough
+
+; fx_ax, fx_ay = 位置, fx_p = パレット
+SpawnFx:
+    .a8
     phy
     ldy #$0000
 @find:
@@ -1301,10 +1549,12 @@ SpawnSparkAtDummy:
 @use:
     lda #8
     sta fx_t,y
-    lda d_x+1,x
+    lda fx_ax
     sta fx_x,y
-    lda d_y+1,x
+    lda fx_ay
     sta fx_y,y
+    lda fx_p
+    sta fx_pal,y
     ply
     rts
 
@@ -1320,6 +1570,18 @@ UpdateFx:
     rts
 
 UpdateTimers:
+    .a8
+    lda tick                ; 過剰生命は少しずつ抜ける
+    and #$1F
+    bne :+
+    rep #$20
+    lda p_hp
+    cmp #HP_MAX+1
+    bcc @nodecay
+    dec p_hp
+@nodecay:
+    sep #$20
+:
     lda combo_t
     beq @done
     dec combo_t
@@ -1369,8 +1631,7 @@ DrawAll:
     inx
     cpx #DUMMY_END
     bne @front
-    jsr DrawSwords
-    jsr DrawPlayer
+    jsr DrawHeroAndMother
     ldx #$0000
 @back:
     rep #$20
@@ -1500,7 +1761,19 @@ AddSprite:
 .endmacro
 
 DrawPlayer:
-    ; コマ選択
+    .a8
+    lda dead_t              ; 倒れたら点滅して消える
+    beq :+
+    cmp #60
+    bcc @hidden
+    and #$04
+    beq @hidden
+:   lda p_inv               ; 被弾後の無敵中は点滅
+    and #$02
+    beq :+
+@hidden:
+    rts
+:   ; コマ選択
     lda p_state
     cmp #ST_ATTACK
     bne :+
@@ -1625,51 +1898,8 @@ DrawSword:
     sep #$20
     jmp AddSprite
 
-; X = 木人
-DrawDummy:
-    lda d_dead,x
-    beq @vis
-    cmp #DEAD_VISIBLE+1
-    bcc @skip
-    and #$02                ; 壊れて飛んでいる間は点滅
-    beq @skip
-@vis:
-    lda #$02
-    sta spr_size
-    lda d_flash,x
-    beq @normal
-    lda #DUMMY_HIT_TILE
-    sta spr_tile
-    lda d_flash,x
-    and #$02
-    beq :+
-    lda #(DUMMY_HIT_NAME | PAL_FLASH | PRIO)
-    bra @attr
-:   lda #(DUMMY_HIT_NAME | PAL_DUMMY | PRIO)
-    bra @attr
-@normal:
-    lda #DUMMY_TILE
-    sta spr_tile
-    lda #(DUMMY_NAME | PAL_DUMMY | PRIO)
-@attr:
-    sta spr_attr
-    rep #$20
-    lda d_x+1,x
-    and #$00FF
-    sec
-    sbc #16
-    sta spr_x
-    lda d_y+1,x
-    and #$00FF
-    sec
-    sbc #26
-    sta spr_y
-    sep #$20
-    jmp AddSprite
-@skip:
-    rts
-
 DrawShadows:
+    .a8
     lda #SHADOW_TILE
     sta spr_tile
     lda #(SHADOW_NAME | PAL_FX | PRIO)
@@ -1678,8 +1908,12 @@ DrawShadows:
     sta spr_size
     SPR_AT p_x, p_y, -16, -12
     jsr AddSprite
+    SPR_AT m_x, m_y, -16, -12
+    jsr AddSprite
     ldx #$0000
 @loop:
+    lda d_type,x
+    beq @next
     lda d_dead,x
     bne @next
     rep #$20
@@ -1712,7 +1946,8 @@ DrawFx:
     bcs :+
     lda #SPARK_TILE+2
 :   sta spr_tile
-    lda #(SPARK_NAME | PAL_FX | PRIO | $10)   ; 優先度3で最前面
+    lda fx_pal,x
+    ora #(SPARK_NAME | PRIO | $10)            ; 優先度3で最前面
     sta spr_attr
     stz spr_size
     rep #$20
@@ -1734,9 +1969,26 @@ DrawFx:
     bne @loop
     rts
 
+.include "enemy.s"
+.include "mother.s"
+
 ; ---- HUD --------------------------------------------------------------------
 ; combo (2桁) と last_dmg (3桁) をタイル番号に (タイル1 = '0')
 BuildHud:
+    .a8
+    rep #$20                ; HP: 10 マス + 過剰生命 5 マス (金)
+    lda p_hp
+    sta t1
+    sep #$20
+    ldx #6*2
+    lda #15
+    jsr DrawBar
+    lda m_ji                ; 慈力: 10 マス
+    sta t1
+    stz t1+1
+    ldx #64 + 6*2
+    lda #10
+    jsr DrawBar
     lda combo
     sta $4204
     stz $4205
@@ -1745,10 +1997,10 @@ BuildHud:
     jsr DivWait
     lda $4214
     inc a
-    sta hud_digits+0
+    sta hud_buf+64+28*2
     lda $4216
     inc a
-    sta hud_digits+1
+    sta hud_buf+64+29*2
     rep #$20
     lda last_dmg
     cmp #1000
@@ -1761,7 +2013,7 @@ BuildHud:
     jsr DivWait
     lda $4214
     inc a
-    sta hud_digits+2
+    sta hud_buf+27*2
     lda $4216
     sta $4204
     stz $4205
@@ -1770,10 +2022,51 @@ BuildHud:
     jsr DivWait
     lda $4214
     inc a
-    sta hud_digits+3
+    sta hud_buf+28*2
     lda $4216
     inc a
-    sta hud_digits+4
+    sta hud_buf+29*2
+    rts
+
+; t1 = 値, X = hud_buf 内の位置, A = マス数 (1マス = 10)
+DrawBar:
+    .a8
+    sta t2
+    ldy #$0000
+@cell:
+    rep #$20
+    lda t1
+    cmp #10
+    bcc :+
+    lda #10
+:   sta t0
+    lda t1
+    sec
+    sbc t0
+    sta t1
+    sep #$20
+    phx
+    ldx t0
+    lda bar_level,x
+    plx
+    cpy #10
+    bcc @white
+    cmp #0                  ; 11マス目以降は中身がある時だけ金色で出す
+    beq @put
+    clc
+    adc #BAR_TILE+9
+    bra @put
+@white:
+    clc
+    adc #BAR_TILE
+@put:
+    sta hud_buf,x
+    inx
+    inx
+    iny
+    tya
+    cmp t2
+    bne @cell
     rts
 
 DivWait:                    ; 除算器の結果待ち (16サイクル以上)
@@ -1818,17 +2111,18 @@ back_vy:    .word $10000-BACK, BACK, 0, 0
 walk_cycle: .byte 1, 0, 2, 0
 
 ; 連斬 4 段 (重さ「標準」)
-atk_startup: .byte 8, 8, 9, 11
-atk_actend:  .byte 14, 14, 15, 17
-atk_total:   .byte 22, 22, 25, 33
-atk_power:   .byte 22, 20, 22, 32      ; 力10 + 暁12 / 宵10 / 暁 / 両方
-atk_mult:    .byte 16, 16, 22, 36
-atk_hitstop: .byte 3, 3, 4, 8
-kb_power:    .word $0100, $0100, $0180, $0700   ; 1-3段は間合いに残し、4段目で飛ばす
-sA_start:    .byte 3, <-3, 0, 4
-sA_step:     .byte $FF, 0, 0, $FF
-sB_start:    .byte <-5, <-3, 3, <-4
-sB_step:     .byte 0, 1, 0, 1
+; 5番目は返し刃
+atk_startup: .byte 8, 8, 9, 11, 4
+atk_actend:  .byte 14, 14, 15, 17, 10
+atk_total:   .byte 22, 22, 25, 33, 26
+atk_power:   .byte 22, 20, 22, 32, 20      ; 力10 + 暁12 / 宵10 / 暁 / 両方
+atk_mult:    .byte 16, 16, 22, 36, 72        ; 返し刃 = 48 × 会心1.5
+atk_hitstop: .byte 3, 3, 4, 8, 10
+kb_power:    .word $0100, $0100, $0180, $0700, $0600   ; 1-3段は間合いに残し、4段目で飛ばす
+sA_start:    .byte 3, <-3, 0, 4, 5
+sA_step:     .byte $FF, 0, 0, $FF, 0
+sB_start:    .byte <-5, <-3, 3, <-4, <-4
+sB_step:     .byte 0, 1, 0, 1, 1
 
 ; 攻撃判定の矩形 (主人公の足元からの相対、向き別)
 hit_xmin:   .word $10000-30, $10000-30, $10000-42, $10000-6
@@ -1836,10 +2130,10 @@ hit_xmax:   .word 30, 30, 6, 42
 hit_ymin:   .word $10000-8, $10000-44, $10000-30, $10000-30
 hit_ymax:   .word 44, 8, 30, 30
 
-dummy_home_x: .word $5000, $8000, $B000
-dummy_home_y: .word $5800, $4800, $5800
+bar_level:  .byte 0, 1, 2, 2, 3, 4, 5, 6, 6, 7, 8    ; 0-10 → 8段階
 
 .include "gfx.inc"
+.include "audio.inc"
 Palette:    .incbin "palette.bin"
 FontChr:    .incbin "font.chr"
 HudMap:     .incbin "hud.map"
@@ -1849,6 +2143,7 @@ BgMap:      .incbin "bg.map"
 ObjChr:     .incbin "obj.chr"
 .segment "BANK2"
 BgChr:      .incbin "bg.chr"
+SpcData:    .incbin "spc.bin"
 
 ; ---- カートリッジヘッダ -----------------------------------------------------
 .segment "HEADER"

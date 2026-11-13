@@ -94,6 +94,16 @@ DUMMY_PAL = [(0, 0, 0), (32, 20, 12), (184, 128, 72), (136, 88, 48), (96, 60, 32
              (232, 208, 120), (192, 160, 80), (144, 112, 48), (160, 168, 176), (104, 112, 128),
              (200, 56, 48), (240, 240, 224)] + [(0, 0, 0)] * 4
 FLASH_PAL = [(0, 0, 0)] + [(255, 255, 255)] * 15
+# 母: 1 輪郭, 2 肌, 3 肌影, 4 髪, 5 髪(明), 6 服, 7 服影, 8 肩掛け, 9 肩掛け影, 10 白, 11 靴
+MOM_PAL = [(0, 0, 0), (36, 24, 32), (244, 200, 164), (208, 152, 116), (120, 72, 40), (168, 112, 64),
+           (240, 228, 196), (200, 180, 144), (72, 144, 104), (44, 100, 76), (255, 255, 248),
+           (112, 72, 48), (224, 96, 96), (0, 0, 0), (0, 0, 0), (0, 0, 0)]
+# 敵共通: 2 毛, 3 毛影, 4 苔(明), 5 苔, 6 苔影, 7 桃, 8 赤目, 9 白, 10 藁, 11 藁影, 12 木, 13 木影, 14 若葉, 15 布
+ENEMY_PAL = [(0, 0, 0), (28, 24, 20), (152, 136, 120), (104, 88, 80), (136, 200, 88), (88, 152, 64),
+             (48, 96, 48), (232, 144, 152), (224, 48, 48), (248, 248, 232), (232, 208, 120),
+             (184, 152, 72), (152, 100, 56), (104, 64, 36), (184, 240, 112), (120, 88, 136)]
+# 癒やしの光 / 崩壊中の色
+HEAL_PAL = [(0, 0, 0), (255, 255, 255), (176, 255, 192), (72, 216, 128)] + [(168, 248, 184)] * 12
 # エフェクト: 1 白, 2 黄, 3 橙, 4 影
 FX_PAL = [(0, 0, 0), (255, 255, 255), (255, 240, 128), (255, 168, 56), (24, 40, 24)] + [(0, 0, 0)] * 11
 
@@ -246,6 +256,189 @@ def dummy(hit):
     return outline(im)
 
 
+def mother(direction, pose):
+    im = new32()
+    d = ImageDraw.Draw(im)
+    R = d.rectangle
+    walk = pose == "walk"
+    cast = pose == "cast"
+    bob = 1 if walk else 0
+    ty = 15 + bob
+    hy = 4 + bob
+    if direction in ("down", "up"):
+        # 長い服 (裾広がり)
+        d.polygon([(11, ty), (20, ty), (23, 28), (8, 28)], fill=6)
+        d.polygon([(19, ty), (20, ty), (23, 28), (21, 28)], fill=7)
+        R([9 + (1 if walk else 0), 28, 12 + (1 if walk else 0), 29], fill=11)
+        R([19 - (1 if walk else 0), 28, 22 - (1 if walk else 0), 29], fill=11)
+        if direction == "down":
+            R([13, ty + 3, 18, 26], fill=10)          # 前掛け
+            d.line([(13, ty + 3), (18, ty + 3)], fill=8)
+        # 肩掛け
+        d.polygon([(9, ty - 1), (22, ty - 1), (23, ty + 4), (8, ty + 4)], fill=8)
+        d.line([(8, ty + 4), (23, ty + 4)], fill=9)
+        # 腕
+        if cast:
+            R([6, ty - 6, 8, ty], fill=2)
+            R([23, ty - 6, 25, ty], fill=2)
+            d.point([(7, ty - 8), (24, ty - 8)], fill=10)
+        else:
+            s1 = 1 if walk else 0
+            R([7, ty + 4 + s1, 9, ty + 8 + s1], fill=2)
+            R([22, ty + 4 - s1, 24, ty + 8 - s1], fill=2)
+        # 頭
+        d.ellipse([11, hy, 20, hy + 10], fill=2)
+        d.ellipse([13, hy - 4, 18, hy], fill=4)        # おだんご
+        if direction == "down":
+            d.pieslice([10, hy - 2, 21, hy + 8], 180, 360, fill=4)
+            R([10, hy + 3, 11, hy + 8], fill=4)
+            R([20, hy + 3, 21, hy + 8], fill=4)
+            d.point([(14, hy - 3), (13, hy), (16, hy - 1)], fill=5)
+            if cast:
+                d.line([(13, hy + 6), (14, hy + 6)], fill=1)
+                d.line([(17, hy + 6), (18, hy + 6)], fill=1)
+            else:
+                d.point([(13, hy + 6), (18, hy + 6)], fill=1)
+            d.point([(12, hy + 7), (19, hy + 7)], fill=12)   # ほお
+            d.line([(15, hy + 8), (16, hy + 8)], fill=3)
+        else:
+            d.ellipse([10, hy - 1, 21, hy + 10], fill=4)
+            d.ellipse([13, hy - 4, 18, hy + 1], fill=4)
+            d.point([(14, hy - 3), (13, hy + 2), (17, hy + 4)], fill=5)
+            R([14, hy - 1, 17, hy - 1], fill=12)             # 髪ひも
+    else:
+        d.polygon([(12, ty), (19, ty), (21, 28), (10, 28)], fill=6)
+        d.polygon([(12, ty), (13, ty), (12, 28), (10, 28)], fill=7)
+        R([13 + (2 if walk else 0), 28, 17 + (2 if walk else 0), 29], fill=11)
+        R([15, ty + 3, 19, 25], fill=10)
+        d.polygon([(11, ty - 1), (20, ty - 1), (21, ty + 4), (10, ty + 4)], fill=8)
+        d.line([(10, ty + 4), (21, ty + 4)], fill=9)
+        ax = 1 if walk else 0
+        R([15 + ax, ty + 4, 17 + ax, ty + 8], fill=2)
+        d.ellipse([11, hy, 20, hy + 10], fill=2)
+        d.pieslice([10, hy - 2, 20, hy + 8], 180, 360, fill=4)
+        R([10, hy + 3, 13, hy + 8], fill=4)
+        d.ellipse([8, hy - 2, 13, hy + 3], fill=4)
+        d.point([(10, hy - 1), (14, hy)], fill=5)
+        d.point([(18, hy + 6)], fill=1)
+        d.point([(17, hy + 7)], fill=12)
+    return outline(im)
+
+
+def small4(fn):
+    """16x16 を 4 コマ、32x32 スロットに詰める。"""
+    im = new32()
+    for k in range(4):
+        q = Image.new("P", (16, 16), 0)
+        fn(ImageDraw.Draw(q), k)
+        outline(q)
+        im.paste(q, ((k % 2) * 16, (k // 2) * 16))
+    return im
+
+
+def rat(d, k):
+    """苔ネズミ (右向き)。0,1=走り 2=溜め 3=飛びつき"""
+    if k == 3:
+        d.ellipse([2, 5, 13, 11], fill=2)
+        d.ellipse([3, 4, 9, 8], fill=5)
+        d.point([(5, 5), (7, 4)], fill=4)
+        d.line([(0, 7), (2, 8)], fill=7)
+        d.polygon([(11, 5), (15, 7), (11, 10)], fill=2)
+        d.point([(13, 7)], fill=8)
+        d.point([(14, 9)], fill=9)
+        d.line([(3, 12), (1, 13)], fill=3)
+        d.line([(11, 12), (13, 13)], fill=3)
+        return
+    y = 2 if k == 2 else 0
+    d.ellipse([2, 6 + y, 12, 13], fill=2)
+    d.ellipse([3, 5 + y, 9, 9 + y], fill=5)
+    d.point([(4, 6 + y), (7, 5 + y)], fill=4)
+    d.point([(6, 7 + y)], fill=6)
+    d.line([(0, 9), (2, 11)], fill=7)
+    d.ellipse([9, 6 + y, 14, 11 + y // 2 + 1], fill=2)
+    d.rectangle([9, 5 + y, 10, 6 + y], fill=7)
+    d.point([(12, 8 + y)], fill=8)
+    d.point([(14, 9 + y)], fill=7)
+    if k == 0:
+        d.point([(4, 14), (10, 14)], fill=3)
+    elif k == 1:
+        d.point([(6, 14), (12, 14)], fill=3)
+
+
+def snake(d, k):
+    """蔓へび (右向き)。0,1=這う 2=溜め 3=噛みつき"""
+    if k == 3:
+        d.line([(1, 12), (5, 10), (9, 9), (13, 8)], fill=5, width=3)
+        d.ellipse([10, 5, 15, 10], fill=4)
+        d.point([(13, 7)], fill=8)
+        d.line([(14, 9), (15, 10)], fill=9)
+        d.point([(4, 8), (5, 7)], fill=14)
+        return
+    if k == 2:
+        d.ellipse([3, 7, 12, 14], fill=5)
+        d.ellipse([5, 9, 10, 12], fill=6)
+        d.ellipse([4, 2, 9, 7], fill=4)
+        d.point([(7, 4)], fill=8)
+        d.point([(11, 6), (12, 5)], fill=14)
+        return
+    w = 1 if k else 0
+    pts = [(1, 12 - w), (4, 13), (7, 11 + w), (9, 9), (10, 6)]
+    d.line(pts, fill=5, width=3)
+    d.line([(2, 13 - w), (6, 12 + w)], fill=6)
+    d.ellipse([8, 2, 14, 7], fill=4)
+    d.point([(12, 4)], fill=8)
+    d.point([(14, 6)], fill=7)
+    d.point([(5, 9 + w), (6, 8 + w)], fill=14)
+
+
+def scarecrow(k):
+    """芽吹き案山子。0=立ち 1=振りかぶり 2=振り下ろし"""
+    im = new32()
+    d = ImageDraw.Draw(im)
+    d.rectangle([15, 22, 16, 29], fill=12)
+    d.point([(16, 23), (16, 26)], fill=13)
+    d.rounded_rectangle([10, 12, 21, 23], radius=3, fill=10)
+    d.rectangle([19, 13, 21, 22], fill=11)
+    for y in (15, 18, 21):
+        d.line([(10, y), (21, y)], fill=11)
+    d.polygon([(11, 12), (20, 12), (17, 17), (14, 17)], fill=15)
+    if k == 0:
+        d.line([(4, 15), (27, 15)], fill=12, width=2)
+        hands = [(4, 15), (27, 15)]
+    elif k == 1:
+        d.line([(10, 14), (5, 5)], fill=12, width=2)
+        d.line([(21, 14), (26, 5)], fill=12, width=2)
+        hands = [(5, 5), (26, 5)]
+    else:
+        d.line([(10, 15), (4, 23)], fill=12, width=2)
+        d.line([(21, 15), (27, 23)], fill=12, width=2)
+        hands = [(4, 23), (27, 23)]
+    for hx, hyy in hands:
+        d.ellipse([hx - 2, hyy - 2, hx + 2, hyy + 2], fill=10)
+        d.point([(hx, hyy - 3)], fill=14)
+    d.ellipse([11, 2, 20, 11], fill=10)
+    d.pieslice([11, 2, 20, 11], 300, 80, fill=11)
+    d.point([(14, 6), (17, 6)], fill=1)
+    d.line([(14, 9), (17, 9)], fill=1)
+    d.point([(13, 8), (18, 8)], fill=8 if k else 1)
+    d.line([(15, 2), (14, 0)], fill=5)
+    d.line([(16, 2), (18, 0)], fill=14)
+    d.point([(13, 0), (19, 0)], fill=4)
+    return outline(im)
+
+
+def satbar():
+    """飽和ゲージ 4 段階 (16x16 x 4)。"""
+    im = new32()
+    d = ImageDraw.Draw(im)
+    for k in range(4):
+        ox, oy = (k % 2) * 16, (k // 2) * 16
+        d.rectangle([ox + 1, oy + 6, ox + 14, oy + 9], fill=4)
+        fill = 3 * (k + 1)
+        d.rectangle([ox + 2, oy + 7, ox + 1 + fill, oy + 8], fill=3 if k == 3 else 2)
+    return im
+
+
 def shadow():
     im = new32()
     d = ImageDraw.Draw(im)
@@ -295,10 +488,18 @@ for dname in ("down", "up", "side"):
     for pose in ("stand", "walk1", "walk2", "atk"):
         HERO_SLOT[(dname, pose)] = add(f"hero_{dname}_{pose}", hero(dname, pose), HERO_PAL)
 SWORD_SLOT = [add(f"sword_{i}", sword(i * 22.5), SWORD_A_PAL) for i in range(5)]
-DUMMY_SLOT = [add("dummy", dummy(False), DUMMY_PAL), add("dummy_hit", dummy(True), DUMMY_PAL)]
+MOM_SLOT = {}
+for dname in ("down", "up", "side"):
+    for pose in ("stand", "walk"):
+        MOM_SLOT[(dname, pose)] = add(f"mom_{dname}_{pose}", mother(dname, pose), MOM_PAL)
+MOM_CAST_SLOT = add("mom_cast", mother("down", "cast"), MOM_PAL)
+RAT_SLOT = add("rat", small4(rat), ENEMY_PAL)
+SNAKE_SLOT = add("snake", small4(snake), ENEMY_PAL)
+SCARE_SLOT = [add(f"scare_{i}", scarecrow(i), ENEMY_PAL) for i in range(3)]
+SATBAR_SLOT = add("satbar", satbar(), FX_PAL)
 SHADOW_SLOT = add("shadow", shadow(), FX_PAL)
 SPARK_SLOT = add("spark", sparks(), FX_PAL)
-assert len(SLOTS) <= 32
+assert len(SLOTS) <= 32, len(SLOTS)
 
 
 def slot_tile(i):
@@ -453,9 +654,18 @@ for ch in CHARS:
                 if px[y][x] == 1 and px[y + 1][x + 1] == 0:
                     px[y + 1][x + 1] = 2
     font_chr += tile_bytes(px, 2)
+BAR_BASE = len(CHARS)
+for color in (1, 3):
+    for lv in range(9):
+        px = [[0] * 8 for _ in range(8)]
+        for x in range(8):
+            px[1][x] = px[6][x] = 2
+            for y in range(2, 6):
+                px[y][x] = color if x < lv else 2
+        font_chr += tile_bytes(px, 2)
 open(f"{OUT}/font.chr", "wb").write(font_chr)
 
-hud = [0] * (32 * 32)
+hud = [0x2000] * (32 * 32)  # 空白にも優先度ビット (後からゲージを書き込むため)
 
 
 def text(col, row, s):
@@ -463,16 +673,19 @@ def text(col, row, s):
         hud[row * 32 + col + i] = CHARS.index(ch) | 0x2000  # 優先度ビット
 
 
-text(2, 1, "COMBO 00   DMG 000")
-text(3, 26, "Y:SLASH  B:DODGE  +:MOVE")
+text(1, 1, "GLEN")
+text(1, 2, "MOM")
+text(23, 1, "DMG 000")
+text(23, 2, "HIT  00")
+text(1, 26, "Y:SLASH B:DODGE A:HEAL X:OVER")
 open(f"{OUT}/hud.map", "wb").write(b"".join(bytes((v & 0xFF, v >> 8)) for v in hud))
 
 # ---------------------------------------------------------------- パレット (CGRAM 256色)
 cg = [(0, 0, 0)] * 256
 cg[0:4] = [(0, 0, 0), (255, 255, 255), (16, 16, 32), (255, 224, 96)]
 cg[32:48] = BG_PAL
-for n, pal in ((0, HERO_PAL), (2, SWORD_A_PAL), (3, SWORD_B_PAL), (4, DUMMY_PAL),
-               (5, FLASH_PAL), (7, FX_PAL)):
+for n, pal in ((0, HERO_PAL), (1, MOM_PAL), (2, SWORD_A_PAL), (3, SWORD_B_PAL), (4, ENEMY_PAL),
+               (5, FLASH_PAL), (6, HEAL_PAL), (7, FX_PAL)):
     cg[128 + n * 16:128 + n * 16 + 16] = pal
 open(f"{OUT}/palette.bin", "wb").write(pal_bytes(cg))
 
@@ -509,11 +722,19 @@ for name, r in (("sw_off0", 18), ("sw_off1", 26)):
     L.append(f"{name}_x: .word " + ", ".join(f"${v & 0xFFFF:04X}" for v in xs))
     L.append(f"{name}_y: .word " + ", ".join(f"${v & 0xFFFF:04X}" for v in ys))
 L.append("")
-for nm, slot in (("DUMMY", DUMMY_SLOT[0]), ("DUMMY_HIT", DUMMY_SLOT[1]),
+L.append("; 母: 向き(下,上,左,右) x (立ち,歩き) = tile, flags / 最後に詠唱")
+L.append("mom_frame_tbl:")
+for dname, flip in (("down", 0), ("up", 0), ("side", 0x40), ("side", 0)):
+    L.append("  .byte " + ", ".join(entry(MOM_SLOT[(dname, pz)], flip) for pz in ("stand", "walk")))
+L.append(f"mom_cast_frame: .byte {entry(MOM_CAST_SLOT)}")
+L.append("scare_frame_tbl: .byte " + ", ".join(entry(x) for x in SCARE_SLOT))
+L.append("quad_tile: .byte 0, 2, 32, 34   ; 32x32 スロット内の 16x16 コマ")
+for nm, slot in (("RAT", RAT_SLOT), ("SNAKE", SNAKE_SLOT), ("SATBAR", SATBAR_SLOT),
                  ("SHADOW", SHADOW_SLOT), ("SPARK", SPARK_SLOT)):
     t, page = slot_tile(slot)
     L.append(f"{nm}_TILE = ${t:02X}")
     L.append(f"{nm}_NAME = ${page:02X}")
+L.append(f"BAR_TILE = {BAR_BASE}")
 L.append(f"BG_CHR_SIZE = {len(tiles) * 32}")
 L.append(f"FONT_CHR_SIZE = {len(font_chr)}")
 L.append(f"OBJ_CHR_SIZE = {len(obj_chr)}")

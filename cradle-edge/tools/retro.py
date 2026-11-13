@@ -40,6 +40,7 @@ class Emu:
         self.frame = None
         self.held = set()
         self.frames = 0
+        self.audio = bytearray()   # 16bit ステレオ
         self._dir = C.create_string_buffer(os.path.abspath("build").encode())
 
         def env(cmd, data):
@@ -55,13 +56,17 @@ class Emu:
             if data:
                 self.frame = (C.string_at(data, pitch * h), w, h, pitch)
 
+        def audio(data, frames):
+            self.audio += C.string_at(data, frames * 4)
+            return frames
+
         def state(port, device, index, bid):
             if port != 0 or device != 1:
                 return 0
             return 1 if bid in self.held else 0
 
         self._cbs = (ENV_CB(env), VIDEO_CB(video), AUDIO_CB(lambda l, r: None),
-                     AUDIO_BATCH_CB(lambda d, n: n), POLL_CB(lambda: None), STATE_CB(state))
+                     AUDIO_BATCH_CB(audio), POLL_CB(lambda: None), STATE_CB(state))
         c = self.core
         c.retro_set_environment(self._cbs[0])
         c.retro_init()
@@ -90,6 +95,14 @@ class Emu:
             self.core.retro_run()
             self.frames += 1
         self.held = set()
+
+    def audio_peak(self, clear=True):
+        """溜まった音声の最大振幅 (0-32767)。"""
+        import array
+        a = array.array("h", bytes(self.audio[:len(self.audio) // 2 * 2]))
+        if clear:
+            self.audio = bytearray()
+        return max((abs(v) for v in a), default=0)
 
     def word(self, addr):
         return self.ram[addr] | (self.ram[addr + 1] << 8)

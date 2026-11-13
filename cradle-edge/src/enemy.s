@@ -1,0 +1,764 @@
+; ============================================================================
+;  敵 (M2): 苔ネズミ / 蔓へび / 芽吹き案山子
+;  行動は共通の型: 接近 → 溜め(予備動作) → 突進攻撃 → 硬直
+;  配列は main.s の d_* (2バイト刻み、X=0,2,..)
+; ============================================================================
+TYPE_RAT    = 1
+TYPE_SNAKE  = 2
+TYPE_SCARE  = 3
+
+ES_APPROACH = 0
+ES_WINDUP   = 1
+ES_ATTACK   = 2
+ES_RECOVER  = 3
+
+; X = 敵 → Y = 種別 (バイト表の添字)
+TypeToY:
+    .a8
+    rep #$20
+    lda d_type,x
+    and #$00FF
+    tay
+    sep #$20
+    rts
+
+; A = 種別, t1 = X(ピクセル), t2 = Y(ピクセル)。空きが無ければ何もしない
+SpawnEnemy:
+    .a8
+    sta t0
+    stz t0+1
+    ldx #$0000
+@find:
+    lda d_type,x
+    beq @use
+    inx
+    inx
+    cpx #DUMMY_END
+    bne @find
+    rts
+@use:
+    lda t0
+    sta d_type,x
+    stz d_state,x
+    stz d_timer,x
+    stz d_stun,x
+    stz d_col,x
+    stz d_atkdone,x
+    stz d_noregen,x
+    stz d_dead,x
+    stz d_bump,x
+    stz d_flip,x
+    lda #$FF
+    sta d_hitid,x
+    lda #12
+    sta d_flash,x
+    rep #$20
+    lda t1
+    and #$00FF
+    xba
+    sta d_x,x
+    lda t2
+    and #$00FF
+    xba
+    sta d_y,x
+    stz d_vx,x
+    stz d_vy,x
+    stz d_sat,x
+    lda t0
+    asl a
+    tay
+    lda e_hp,y
+    sta d_hp,x
+    sta d_maxhp,x
+    lda e_satmax,y
+    sta d_satmax,x
+    lda e_defh,y
+    sta d_def,x
+    sep #$20
+    rts
+
+; X = 敵 → t1 = 主人公X − 敵X, t2 = 同Y (符号付き16bit)、adx/ady = 絶対値
+EnemyDelta:
+    .a8
+    rep #$20
+    lda p_x+1
+    and #$00FF
+    sta t1
+    lda d_x+1,x
+    and #$00FF
+    sta t3
+    lda t1
+    sec
+    sbc t3
+    sta t1
+    bpl :+
+    eor #$FFFF
+    inc a
+:   sta adx
+    lda p_y+1
+    and #$00FF
+    sta t2
+    lda d_y+1,x
+    and #$00FF
+    sta t3
+    lda t2
+    sec
+    sbc t3
+    sta t2
+    bpl :+
+    eor #$FFFF
+    inc a
+:   sta ady
+    sep #$20
+    rts
+
+UpdateEnemies:
+    .a8
+    ldx #$0000
+@loop:
+    lda d_type,x
+    bne :+
+    jmp @next
+:   lda d_dead,x
+    beq :+
+    jmp @next
+:   jsr EnemyRegen
+    lda d_col,x             ; 崩壊中は動けない
+    beq :+
+    dec d_col,x
+    jmp @next
+:   lda d_stun,x            ; のけぞり中
+    beq :+
+    dec d_stun,x
+    jmp @next
+:   jsr EnemyDelta
+    lda d_state,x
+    beq @approach
+    cmp #ES_WINDUP
+    beq @windup
+    cmp #ES_ATTACK
+    beq @attack
+    dec d_timer,x           ; 硬直
+    bne @next
+    stz d_state,x
+    bra @next
+@windup:
+    dec d_timer,x
+    bne @next
+    lda #ES_ATTACK
+    sta d_state,x
+    jsr TypeToY
+    lda e_atkfr,y
+    sta d_timer,x
+    stz d_atkdone,x
+    bra @next
+@attack:
+    jsr EnemyAttackMove
+    dec d_timer,x
+    bne @next
+    lda #ES_RECOVER
+    sta d_state,x
+    jsr TypeToY
+    lda e_recover,y
+    sta d_timer,x
+    bra @next
+@approach:
+    jsr EnemyApproach
+@next:
+    inx
+    inx
+    cpx #DUMMY_END
+    beq :+
+    jmp @loop
+:   rts
+
+; 飽和の自然減衰と、繁り属性の再生
+EnemyRegen:
+    .a8
+    lda tick
+    and #$0F
+    bne @regen
+    rep #$20
+    lda d_sat,x
+    beq :+
+    dec a
+    sta d_sat,x
+:   sep #$20
+@regen:
+    lda tick
+    and #$1F
+    bne @done
+    lda d_noregen,x
+    bne @done
+    jsr TypeToY
+    lda e_regen,y
+    beq @done
+    sta t0
+    stz t0+1
+    rep #$20
+    lda d_hp,x
+    clc
+    adc t0
+    cmp d_maxhp,x
+    bcc :+
+    lda d_maxhp,x
+:   sta d_hp,x
+    sep #$20
+@done:
+    rts
+
+; 主人公へ歩く。間合いに入ったら狙いを定めて溜めに入る
+EnemyApproach:
+    .a8
+    stz d_flip,x
+    lda t1+1
+    bpl :+
+    lda #$40
+    sta d_flip,x
+:   jsr TypeToY
+    lda adx+1
+    bne @move
+    lda ady+1
+    bne @move
+    lda adx
+    cmp e_range,y
+    bcs @move
+    lda ady
+    cmp e_range,y
+    bcs @move
+    lda #ES_WINDUP
+    sta d_state,x
+    lda e_windup,y
+    sta d_timer,x
+    jmp EnemyAim
+@move:
+    rep #$20
+    tya
+    asl a
+    tay
+    lda adx
+    cmp #4
+    bcc @my
+    lda t1
+    bmi @mxn
+    lda d_x,x
+    clc
+    adc e_speed,y
+    sta d_x,x
+    bra @my
+@mxn:
+    lda d_x,x
+    sec
+    sbc e_speed,y
+    sta d_x,x
+@my:
+    lda ady
+    cmp #4
+    bcc @mdone
+    lda t2
+    bmi @myn
+    lda d_y,x
+    clc
+    adc e_speed,y
+    sta d_y,x
+    bra @mdone
+@myn:
+    lda d_y,x
+    sec
+    sbc e_speed,y
+    sta d_y,x
+@mdone:
+    sep #$20
+    rts
+
+; 溜めの開始時点の主人公の方向へ、突進の速度を決める (8方向)
+; Y = 種別
+EnemyAim:
+    .a8
+    rep #$20
+    tya
+    asl a
+    tay
+    lda e_atkspd,y
+    sta t0
+    stz d_avx,x
+    stz d_avy,x
+    lda ady
+    asl a
+    cmp adx
+    bcc @x_only
+    lda adx
+    asl a
+    cmp ady
+    bcc @y_only
+    lda t0                  ; 斜めは 3/4
+    lsr a
+    lsr a
+    sta t3
+    lda t0
+    sec
+    sbc t3
+    sta t0
+    jsr AimX
+    jsr AimY
+    sep #$20
+    rts
+@x_only:
+    jsr AimX
+    sep #$20
+    rts
+@y_only:
+    jsr AimY
+    sep #$20
+    rts
+
+AimX:
+    .a16
+    lda t1
+    bmi :+
+    lda t0
+    sta d_avx,x
+    rts
+:   lda #$0000
+    sec
+    sbc t0
+    sta d_avx,x
+    rts
+AimY:
+    .a16
+    lda t2
+    bmi :+
+    lda t0
+    sta d_avy,x
+    rts
+:   lda #$0000
+    sec
+    sbc t0
+    sta d_avy,x
+    rts
+
+; 突進して、主人公に重なったら当てる
+EnemyAttackMove:
+    .a8
+    rep #$20
+    lda d_x,x
+    clc
+    adc d_avx,x
+    cmp #MINX
+    bcs :+
+    lda #MINX
+:   cmp #MAXX
+    bcc :+
+    lda #MAXX
+:   sta d_x,x
+    lda d_y,x
+    clc
+    adc d_avy,x
+    cmp #MINY
+    bcs :+
+    lda #MINY
+:   cmp #MAXY
+    bcc :+
+    lda #MAXY
+:   sta d_y,x
+    sep #$20
+    lda d_atkdone,x
+    bne @done
+    jsr EnemyDelta
+    jsr TypeToY
+    lda adx+1
+    bne @done
+    lda adx
+    cmp e_hitw,y
+    bcs @done
+    lda ady+1
+    bne @done
+    lda ady
+    cmp e_hith,y
+    bcs @done
+    lda e_atk,y
+    jmp HurtPlayer
+@done:
+    rts
+
+; A = ダメージ, X = 当ててきた敵
+HurtPlayer:
+    .a8
+    sta t0
+    stz t0+1
+    lda #$01
+    sta d_atkdone,x
+    lda dead_t
+    bne @out
+    lda p_state
+    cmp #ST_DODGE
+    bne @no_dodge
+    lda p_timer
+    cmp #10                 ; 無敵は回避の最初の10F
+    bcs @no_dodge
+    cmp #6                  ; そのうち最初の6Fで受ければジャスト回避
+    bcs @out
+    lda #50
+    sta p_just
+    stx just_idx
+    lda #10
+    sta hitstop
+    sta dim_t
+    lda #SE_JUST
+    jsr PlaySe
+    rts
+@no_dodge:
+    lda p_inv
+    bne @out
+    rep #$20
+    lda p_hp
+    sec
+    sbc t0
+    beq @die
+    bpl @ok
+@die:
+    stz p_hp
+    sep #$20
+    lda #120
+    sta dead_t
+    rep #$20
+    bra @knock
+@ok:
+    sta p_hp
+@knock:
+    lda d_avx,x
+    ASR16
+    sta dodge_vx
+    lda d_avy,x
+    ASR16
+    sta dodge_vy
+    sep #$20
+    lda #ST_HURT
+    sta p_state
+    stz p_timer
+    lda #60
+    sta p_inv
+    lda #5
+    sta hitstop
+    lda #6
+    sta shake_t
+    stz combo
+    lda #SE_HURT
+    jsr PlaySe
+@out:
+    rts
+
+; 被弾のけぞり
+PlayerHurt:
+    .a8
+    rep #$20
+    lda dodge_vx
+    sta vx
+    lda dodge_vy
+    sta vy
+    sep #$20
+    jsr MovePlayer
+    jsr SetRestSwords
+    inc p_timer
+    lda p_timer
+    cmp #14
+    bcc :+
+    stz p_state
+:   rts
+
+; X = 敵。主人公をその敵の方へ向ける (返し刃用)
+FacePlayerTo:
+    .a8
+    lda d_type,x
+    beq @done
+    jsr EnemyDelta
+    rep #$20
+    lda adx
+    cmp ady
+    sep #$20
+    bcc @vert
+    lda #3
+    ldy t1                  ; t1 = 主人公 − 敵。負なら敵は右
+    bmi :+
+    lda #2
+:   sta p_face
+    rts
+@vert:
+    lda #0
+    ldy t2
+    bmi :+
+    lda #1
+:   sta p_face
+@done:
+    rts
+
+; 全滅したら次の群れを出す
+UpdateWaves:
+    .a8
+    ldx #$0000
+@count:
+    lda d_type,x
+    bne @busy
+    inx
+    inx
+    cpx #DUMMY_END
+    bne @count
+    inc wave_t
+    lda wave_t
+    cmp #90
+    bcc @busy
+    stz wave_t
+    rep #$20
+    lda wave
+    and #$00FF
+    asl a
+    tax
+    lda wave_ptrs,x
+    sta t3
+    sep #$20
+    ldy #$0000
+@spawn:
+    lda (t3),y
+    beq @end
+    pha
+    iny
+    lda (t3),y
+    sta t1
+    iny
+    lda (t3),y
+    sta t2
+    iny
+    pla
+    phy
+    jsr SpawnEnemy
+    ply
+    bra @spawn
+@end:
+    inc wave
+    lda wave
+    cmp #NUM_WAVES
+    bcc @busy
+    stz wave
+@busy:
+    rts
+
+; ---- 敵の描画 ---------------------------------------------------------------
+; X = 敵 → A = コマ番号
+EnemyFrame:
+    .a8
+    lda d_col,x
+    bne @two
+    lda d_stun,x
+    bne @two
+    lda d_state,x
+    beq @walk
+    cmp #ES_WINDUP
+    beq @wind
+    cmp #ES_ATTACK
+    beq @atk
+@zero:
+    lda #0
+    rts
+@walk:
+    lda d_type,x
+    cmp #TYPE_SCARE
+    beq @zero
+    lda tick
+    lsr a
+    lsr a
+    lsr a
+    and #$01
+    rts
+@wind:
+    lda d_type,x
+    cmp #TYPE_SCARE
+    beq @one
+@two:
+    lda #2
+    rts
+@one:
+    lda #1
+    rts
+@atk:
+    lda d_type,x
+    cmp #TYPE_SCARE
+    beq @two
+    lda #3
+    rts
+
+; X = 敵
+DrawDummy:
+    .a8
+    lda d_type,x
+    bne :+
+    rts
+:   lda d_dead,x
+    beq @vis
+    and #$02
+    bne @vis
+    rts
+@vis:
+    lda #(PAL_ENEMY | PRIO)
+    sta t3
+    lda d_col,x             ; 崩壊中は緑に明滅
+    beq :+
+    lda tick
+    and #$04
+    beq :+
+    lda #(PAL_HEAL | PRIO)
+    sta t3
+:   lda d_state,x           ; 攻撃の直前は白く点滅 (見切りの合図)
+    cmp #ES_WINDUP
+    bne :+
+    lda d_timer,x
+    cmp #12
+    bcs :+
+    and #$02
+    beq :+
+    lda #(PAL_FLASH | PRIO)
+    sta t3
+:   lda d_flash,x
+    and #$02
+    beq :+
+    lda #(PAL_FLASH | PRIO)
+    sta t3
+:   jsr EnemyFrame
+    sta t0
+    stz t0+1
+    lda d_type,x
+    cmp #TYPE_SCARE
+    beq @big
+    ; 16x16 の小型
+    ldy t0
+    lda quad_tile,y
+    sta spr_tile
+    lda d_type,x
+    cmp #TYPE_RAT
+    bne @snake
+    lda spr_tile
+    clc
+    adc #RAT_TILE
+    sta spr_tile
+    lda #RAT_NAME
+    bra @sattr
+@snake:
+    lda spr_tile
+    clc
+    adc #SNAKE_TILE
+    sta spr_tile
+    lda #SNAKE_NAME
+@sattr:
+    ora t3
+    ora d_flip,x
+    sta spr_attr
+    stz spr_size
+    rep #$20
+    lda d_x+1,x
+    and #$00FF
+    sec
+    sbc #8
+    sta spr_x
+    lda d_y+1,x
+    and #$00FF
+    sec
+    sbc #14
+    sta spr_y
+    sep #$20
+    jsr AddSprite
+    jmp DrawSatBar
+@big:
+    rep #$20
+    lda t0
+    asl a
+    tay
+    sep #$20
+    lda scare_frame_tbl,y
+    sta spr_tile
+    lda scare_frame_tbl+1,y
+    ora t3
+    sta spr_attr
+    lda #$02
+    sta spr_size
+    rep #$20
+    lda d_x+1,x
+    and #$00FF
+    sec
+    sbc #16
+    sta spr_x
+    lda d_y+1,x
+    and #$00FF
+    sec
+    sbc #26
+    sta spr_y
+    sep #$20
+    jsr AddSprite
+    ; fallthrough
+
+; X = 敵。飽和が溜まっていれば頭上にゲージ
+DrawSatBar:
+    .a8
+    rep #$20
+    lda d_sat,x
+    beq @none
+    sta t1
+    lda d_satmax,x
+    lsr a
+    lsr a
+    sta t2
+    ldy #$0000
+@lv:
+    lda t1
+    sec
+    sbc t2
+    bcc @got
+    sta t1
+    iny
+    cpy #$0003
+    bcc @lv
+@got:
+    sep #$20
+    lda quad_tile,y
+    clc
+    adc #SATBAR_TILE
+    sta spr_tile
+    lda #(SATBAR_NAME | PAL_FX | PRIO | $10)
+    sta spr_attr
+    stz spr_size
+    rep #$20
+    lda d_x+1,x
+    and #$00FF
+    sec
+    sbc #8
+    sta spr_x
+    lda d_y+1,x
+    and #$00FF
+    sec
+    sbc #40
+    sta spr_y
+    sep #$20
+    jmp AddSprite
+@none:
+    sep #$20
+    rts
+
+; ---- 種別ごとの性能 (添字 = 種別) -------------------------------------------
+;                  -      ネズミ  へび    案山子
+e_speed:   .word 0,     $00C0,  $0070,  $0050
+e_atkspd:  .word 0,     $0300,  $0280,  $0200
+e_hp:      .word 0,     45,     60,     140
+e_defh:    .word 0,     2,      1,      3       ; 守 ÷ 2
+e_satmax:  .word 0,     40,     50,     60
+e_range:   .byte 0,     40,     28,     38
+e_windup:  .byte 0,     24,     30,     40
+e_atkfr:   .byte 0,     14,     10,     16
+e_recover: .byte 0,     30,     40,     50
+e_atk:     .byte 0,     12,     15,     20
+e_regen:   .byte 0,     0,      1,      2       ; 32F ごとの再生量
+e_hitw:    .byte 0,     12,     12,     18
+e_hith:    .byte 0,     10,     10,     14
+
+NUM_WAVES = 3
+wave_ptrs: .word .loword(wave0), .loword(wave1), .loword(wave2)
+wave0: .byte TYPE_RAT, 60, 70,  TYPE_RAT, 196, 70,  0
+wave1: .byte TYPE_SNAKE, 128, 56,  TYPE_RAT, 40, 120,  TYPE_RAT, 216, 120,  0
+wave2: .byte TYPE_SCARE, 128, 60,  TYPE_SNAKE, 60, 60,  TYPE_SNAKE, 196, 60,  TYPE_RAT, 128, 196,  0
