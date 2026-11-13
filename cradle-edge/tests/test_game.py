@@ -139,7 +139,7 @@ emu.run(2, "B")
 emu.run(60)
 check("献立を選ぶと力が上がる (鹿肉 +3)", b("meal") == 1 and b("p_str") == 13, f"str={b('p_str')}")
 check("護符を外すと守が戻る", b("am1") == 0 and b("p_def") == 0, f"am1={b('am1')} def={b('p_def')}")
-check("支度を終えると記録される", emu.sram is not None and bytes(emu.sram[0:2]) == b"CE" and emu.sram[16] == 1)
+check("支度を終えると記録される", emu.sram is not None and bytes(emu.sram[0:2]) == b"CE" and emu.sram[3 + sym["meal"] - sym["save_blk"]] == 1)
 check("記録のあと歩ける", skip_dialogue())
 
 # 村人と話す

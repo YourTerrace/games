@@ -820,81 +820,39 @@ DrawLine:
     rts
 
 ; ---- セーブ (バッテリーバックアップ) ----------------------------------------
-;  +0 'C' +1 'E' +2 部屋 +3 X +4 Y +5 ボス撃破 +6..13 入室済み
-;  +14 暁手 +15 宵手 +16 献立 +17 持っている剣 +18..21 見切り印(種別1-4) +22 薬箱
-;  +23 持っている護符 +24 護符1 +25 護符2
-;  +26..31 熟練の経験 +32..35 カルテ(種別1-4) +36 検査用の和
+;  +0 'C' +1 'E' +2 版 +3.. 記録の塊 (save_blk、SAVE_SIZE バイト) + 検査用の和
+SAVE_VER = 3
+
 SaveGame:
     .a8
     lda #'C'
     sta f:SRAM
     lda #'E'
     sta f:SRAM+1
-    lda chk_room
+    lda #SAVE_VER
     sta f:SRAM+2
-    lda chk_x
-    sta f:SRAM+3
-    lda chk_y
-    sta f:SRAM+4
-    lda boss_dead
-    sta f:SRAM+5
     ldx #$0000
-@seen:
-    lda seen,x
-    sta f:SRAM+6,x
+@copy:
+    lda save_blk,x
+    sta f:SRAM+3,x
     inx
-    cpx #$0008
-    bne @seen
-    lda eqA
-    sta f:SRAM+14
-    lda eqB
-    sta f:SRAM+15
-    lda meal
-    sta f:SRAM+16
-    lda own
-    sta f:SRAM+17
-    ldx #$0000
-@mk:
-    lda marks+1,x
-    sta f:SRAM+18,x
-    inx
-    cpx #$0004
-    bne @mk
-    lda kit
-    sta f:SRAM+22
-    lda am_own
-    sta f:SRAM+23
-    lda am1
-    sta f:SRAM+24
-    lda am2
-    sta f:SRAM+25
-    ldx #$0000
-@q:
-    lda mq_exp,x
-    sta f:SRAM+26,x
-    inx
-    cpx #$0006
-    bne @q
-    ldx #$0000
-@c:
-    lda chart+1,x
-    sta f:SRAM+32,x
-    inx
-    cpx #$0004
-    bne @c
+    cpx #SAVE_SIZE
+    bne @copy
     jsr SaveSum
-    sta f:SRAM+36
+    sta f:SRAM+3+SAVE_SIZE
     rts
 
+; 記録の塊の和 → A
 SaveSum:
     .a8
     ldx #$0000
     lda #$5A
 @loop:
     clc
-    adc f:SRAM+2,x
+    adc f:SRAM+3,x
+    eor #$A5
     inx
-    cpx #34
+    cpx #SAVE_SIZE
     bne @loop
     rts
 
@@ -907,8 +865,11 @@ HasSave:
     lda f:SRAM+1
     cmp #'E'
     bne @no
+    lda f:SRAM+2
+    cmp #SAVE_VER
+    bne @no
     jsr SaveSum
-    cmp f:SRAM+36
+    cmp f:SRAM+3+SAVE_SIZE
     bne @no
     sec
     rts
@@ -918,108 +879,37 @@ HasSave:
 
 LoadGame:
     .a8
-    lda f:SRAM+2
-    sta chk_room
-    lda f:SRAM+3
-    sta chk_x
-    lda f:SRAM+4
-    sta chk_y
-    lda f:SRAM+5
-    sta boss_dead
     ldx #$0000
-@seen:
-    lda f:SRAM+6,x
-    sta seen,x
+@copy:
+    lda f:SRAM+3,x
+    sta save_blk,x
     inx
-    cpx #$0008
-    bne @seen
-    lda f:SRAM+14
-    sta eqA
-    lda f:SRAM+15
-    sta eqB
-    lda f:SRAM+16
-    sta meal
-    lda f:SRAM+17
-    sta own
-    lda f:SRAM+22
-    sta kit
-    lda f:SRAM+23
-    sta am_own
-    lda f:SRAM+24
-    sta am1
-    lda f:SRAM+25
-    sta am2
-    ldx #$0000
-@q:
-    lda f:SRAM+26,x
-    sta mq_exp,x
-    inx
-    cpx #$0006
-    bne @q
-    stz chart
-    ldx #$0000
-@c:
-    lda f:SRAM+32,x
-    sta chart+1,x
-    inx
-    cpx #$0004
-    bne @c
-    stz marks
-    ldx #$0000
-@mk:
-    lda f:SRAM+18,x
-    sta marks+1,x
-    inx
-    cpx #$0004
-    bne @mk
+    cpx #SAVE_SIZE
+    bne @copy
     rts
 
 NewGame:
     .a8
-    stz boss_dead
-    stz eqA
+    ldx #$0000
+@clr:
+    stz save_blk,x
+    inx
+    cpx #SAVE_SIZE
+    bne @clr
     lda #1
     sta eqB
-    stz meal
     lda #%0011
     sta own
-    stz kit
-    stz med_sel
-    stz m_tac
     lda #AMB_FORGE          ; 鍛冶屋の前掛けだけ持って、身につけて出る
     sta am_own
     lda #1
     sta am1
-    stz am2
-    ldx #$0000
-@q:
-    stz mq_exp,x
-    inx
-    cpx #$0006
-    bne @q
-    ldx #$0000
-@c:
-    stz chart,x
-    inx
-    cpx #$0005
-    bne @c
-    ldx #$0000
-@mk:
-    stz marks,x
-    inx
-    cpx #$0005
-    bne @mk
-    ldx #$0000
-@seen:
-    stz seen,x
-    inx
-    cpx #$0008
-    bne @seen
-    stz chk_room
     lda #START_X
     sta chk_x
     lda #START_Y
     sta chk_y
+    stz kit
+    stz med_sel
     rts
 
 ; ---- タイトル ---------------------------------------------------------------

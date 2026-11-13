@@ -135,7 +135,6 @@ m_timer:     .res 1
 m_anim:      .res 1
 m_ji:        .res 1          ; 慈力
 m_target:    .res 2
-m_tac:       .res 1          ; 作戦
 m_order:     .res 1          ; 「殴って！」を受けた
 m_xhold:     .res 1          ; X を押し続けている長さ
 m_cd:        .res 1          ; 次に殴れるまで
@@ -179,43 +178,50 @@ oe_x:        .res 2
 oe_y:        .res 2
 
 .bss
-room_exit:   .res 4          ; 上下左右の行き先 ($FF = なし)
-room_enter:  .res 1          ; 初入室時の台本 ($FF = なし)。room_exit の直後に置くこと
-room_music:  .res 1          ; 部屋の曲。room_enter の直後に置くこと
-boss_dead:   .res 1
-stag_dead:   .res 1
-ev_boss:     .res 1
+; ---- 記録の塊: ここからここまでをそのままバッテリーバックアップへ写す ----
+save_blk:
 chk_room:    .res 1          ; 最後に休んだ焚き火
 chk_x:       .res 1
 chk_y:       .res 1
-title_sel:   .res 1
-title_has:   .res 1
+boss_dead:   .res 1          ; 水車番を倒した
+stag_dead:   .res 1          ; 大鹿を倒した
+seen:        .res 16         ; 入った部屋
 eqA:         .res 1          ; 暁手の剣
 eqB:         .res 1          ; 宵手の剣
 meal:        .res 1
 own:         .res 1          ; 持っている剣 (bit)
 marks:       .res NUM_TYPES  ; 見切り印 (敵の種別ごと)
+kit:         .res 1          ; 薬箱の組み合わせ
+am_own:      .res 1          ; 持っている護符 (bit 1-7)
+am1:         .res 1          ; 身につけている護符 (0 = なし)
+am2:         .res 1
+mq_exp:      .res 6          ; 熟練の経験 (連斬 / 溜め斬り / 返し刃)
+chart:       .res NUM_TYPES  ; 母のカルテ (敵の種別ごと、崩壊させた回数)
+m_tac:       .res 1          ; 母の作戦
+save_end:
+SAVE_SIZE = save_end - save_blk
+; ----
+room_exit:   .res 4          ; 上下左右の行き先 ($FF = なし)
+room_enter:  .res 1          ; 初入室時の台本 ($FF = なし)。room_exit の直後に置くこと
+room_music:  .res 1          ; 部屋の曲。room_enter の直後に置くこと
+ev_boss:     .res 1
+title_sel:   .res 1
+title_has:   .res 1
 p_str:       .res 1
 p_def:       .res 1
 p_justm:     .res 1          ; 見切った攻撃をジャスト回避した
 sp_mask:     .res 1          ; 繁り特効の手
 menu_cur:    .res 1
 menu_line:   .res 1
-kit:         .res 1          ; 薬箱の組み合わせ
 med:         .res 3          ; 傷薬 / 慈力水 / 気付け薬 の残り
 med_sel:     .res 1
-am_own:      .res 1          ; 持っている護符 (bit 1-7)
-am1:         .res 1          ; 身につけている護符 (0 = なし)
-am2:         .res 1
 am_on:       .res 1          ; 効いている護符 (bit)
 menu_top:    .res 1          ; 支度メニューの表示の先頭行
 ch_lv1:      .res 1          ; 溜めの段階 (護符で変わる)
 ch_lv2:      .res 1
 cast_heal:   .res 1          ; 詠唱の長さ (護符で変わる)
 cast_over:   .res 1
-mq_exp:      .res 6          ; 熟練の経験 (連斬 / 溜め斬り / 返し刃)
 mq_lv:       .res 3          ; 熟練 Lv (1-5)
-chart:       .res NUM_TYPES  ; 母のカルテ (敵の種別ごと、崩壊させた回数)
 chart_done:  .res 1          ; 完成したカルテの数
 over_amt:    .res 1          ; 過治癒 1 回で溜まる飽和
 pause_pg:    .res 1
@@ -265,7 +271,6 @@ it_x:        .res 8
 it_y:        .res 8
 it_a:        .res 8
 it_b:        .res 8
-seen:        .res 8
 r_power:     .res 8          ; 装備から作った連斬の性能表
 r_startup:   .res 8
 r_actend:    .res 8
@@ -2569,7 +2574,7 @@ SetChr:     .incbin "set0.chr"         ; 部屋ごとのスプライト集 (1 �
     .byte "CRADLE EDGE          "   ; 21 文字
     .byte $30               ; LoROM / FastROM
     .byte $02               ; ROM + RAM + 電池
-    .byte $08               ; 256KB
+    .byte $09               ; 512KB
     .byte $03               ; SRAM 8KB
     .byte $00               ; 日本
     .byte $00               ; メーカーコード (未割当)
