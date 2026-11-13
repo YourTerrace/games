@@ -251,6 +251,17 @@ check("ボス部屋で曲が鳴る", emu.audio_peak() > 3000)
 check("ボス部屋に水車番がいる", 4 in [b("d_type", k) for k in enemies()])
 check("ボス前の会話を送れる", skip_dialogue())
 
+# ボスの技: 種撒き (飛び道具) が出るまで見る
+seen_shot = False
+for _ in range(900):
+    poke_w("p_hp", 100)
+    r[sym["p_inv"]] = 30
+    emu.run(1)
+    if any(b("sh_t", i) for i in range(0, 16, 2)):
+        seen_shot = True
+        break
+check("ボスが種を撒く", seen_shot)
+
 # ボス: HP を 1 にして斬る
 boss = [k for k in enemies() if b("d_type", k) == 4][0]
 shot("09_boss")

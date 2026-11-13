@@ -161,7 +161,8 @@ UpdateEnemies:
     lda e_atkfr,y
     sta d_timer,x
     stz d_atkdone,x
-    bra @next
+    jsr PatternStart
+    jmp @next
 @attack:
     jsr EnemyAttackMove
     dec d_timer,x
@@ -266,6 +267,12 @@ EnemyApproach:
     sta d_state,x
     lda e_windup,y
     sta d_timer,x
+    lda d_pat,x             ; 技を順に回す
+    inc a
+    cmp e_npat,y
+    bcc :+
+    lda #0
+:   sta d_pat,x
     jmp EnemyAim
 @move:
     rep #$20
@@ -399,17 +406,30 @@ EnemyAttackMove:
 :   sta d_y,x
     sep #$20
     lda d_atkdone,x
-    bne @done
-    jsr EnemyDelta
+    beq :+
+    rts
+:   jsr TypeToY
+    lda e_hitw,y            ; 当たりの大きさ (薙ぎ払いは広い)
+    sta hit_w
+    lda e_hith,y
+    sta hit_h
+    lda d_pat,x
+    cmp #PAT_SWEEP
+    bne :+
+    lda #56
+    sta hit_w
+    lda #44
+    sta hit_h
+:   jsr EnemyDelta
     jsr TypeToY
     lda adx+1
     ora ady+1
     bne @mom
     lda adx
-    cmp e_hitw,y
+    cmp hit_w
     bcs @mom
     lda ady
-    cmp e_hith,y
+    cmp hit_h
     bcs @mom
     lda e_atk,y
     jmp HurtPlayer
@@ -426,10 +446,10 @@ EnemyAttackMove:
     ora ady+1
     bne @done
     lda adx
-    cmp e_hitw,y
+    cmp hit_w
     bcs @done
     lda ady
-    cmp e_hith,y
+    cmp hit_h
     bcs @done
     lda e_atk,y
     jmp HurtMother
@@ -892,6 +912,213 @@ DrawSatBar:
     sep #$20
     rts
 
+; ---- 技 ---------------------------------------------------------------------
+PAT_LUNGE   = 0             ; 突進
+PAT_SEEDS   = 1             ; 種を撒く (その場で)
+PAT_SWEEP   = 2             ; 薙ぎ払い (その場で、広い)
+SHOT_DMG    = 12
+
+; X = 敵。攻撃に入った瞬間の処理
+PatternStart:
+    .a8
+    lda d_pat,x
+    beq @done
+    rep #$20                ; 突進以外はその場で
+    stz d_avx,x
+    stz d_avy,x
+    sep #$20
+    cmp #PAT_SEEDS
+    bne @sweep
+    lda #$01                ; 種は体当たりしない
+    sta d_atkdone,x
+    lda #SE_DODGE
+    jsr PlaySe
+    ldy #$0000              ; 案山子は斜め 4 方向、ボスは 8 方向
+    lda d_type,x
+    cmp #TYPE_BOSS
+    beq @ring
+    ldy #$0002
+@ring:
+    phy
+    jsr SpawnShot
+    ply
+    iny
+    iny
+    lda d_type,x
+    cmp #TYPE_BOSS
+    beq :+
+    iny
+    iny
+:   cpy #$0010
+    bcc @ring
+    rts
+@sweep:
+    lda #8
+    sta shake_t
+    lda #SE_HEAVY
+    jmp PlaySe
+@done:
+    rts
+
+; X = 撃つ敵, Y = 方向 (0,2,..14)。X, Y は保存
+SpawnShot:
+    .a8
+    phx
+    stx bi
+    sty bj
+    ldy #$0000
+@find:
+    lda sh_t,y
+    beq @use
+    iny
+    iny
+    cpy #NUM_SHOT*2
+    bne @find
+    plx
+    rts
+@use:
+    lda #90
+    sta sh_t,y
+    lda bi
+    sta sh_src,y
+    rep #$20
+    lda d_x,x
+    sta sh_x,y
+    lda d_y,x
+    sec
+    sbc #$1000              ; 胴の高さから
+    sta sh_y,y
+    ldx bj
+    lda shot_vx,x
+    sta sh_vx,y
+    lda shot_vy,x
+    sta sh_vy,y
+    sep #$20
+    plx
+    ldy bj
+    rts
+
+UpdateShots:
+    .a8
+    ldy #$0000
+@loop:
+    lda sh_t,y
+    bne :+
+    jmp @next
+:   dec a
+    sta sh_t,y
+    rep #$20
+    lda sh_x,y
+    clc
+    adc sh_vx,y
+    sta sh_x,y
+    lda sh_y,y
+    clc
+    adc sh_vy,y
+    sta sh_y,y
+    sep #$20
+    lda sh_x+1,y            ; 壁や画面外で消える
+    sta cx
+    lda sh_y+1,y
+    clc
+    adc #8
+    bcs @kill
+    sta cy
+    cmp #20
+    bcc @kill
+    lda cx
+    cmp #4
+    bcc @kill
+    cmp #252
+    bcs @kill
+    jsr SolidAt
+    bcs @kill
+    ; 主人公に当たったか
+    lda sh_x+1,y
+    sec
+    sbc p_x+1
+    bcs :+
+    eor #$FF
+    inc a
+:   cmp #8
+    bcs @next
+    lda sh_y+1,y
+    clc
+    adc #8
+    sec
+    sbc p_y+1
+    bcs :+
+    eor #$FF
+    inc a
+:   cmp #10
+    bcs @next
+    phy
+    lda sh_src,y
+    rep #$20
+    and #$00FF
+    tax
+    sep #$20
+    lda #SHOT_DMG
+    jsr HurtPlayer
+    ply
+    lda p_state             ; 避けている最中は種がすり抜ける
+    cmp #ST_DODGE
+    beq @next
+@kill:
+    lda #0
+    sta sh_t,y
+@next:
+    iny
+    iny
+    cpy #NUM_SHOT*2
+    beq :+
+    jmp @loop
+:   rts
+
+DrawShots:
+    .a8
+    ldx #$0000
+@loop:
+    lda sh_t,x
+    beq @next
+    and #$04
+    lsr a
+    lsr a
+    clc
+    adc #2
+    tay
+    lda quad_tile,y
+    clc
+    adc #SPARK_TILE
+    sta spr_tile
+    lda #(SPARK_NAME | PAL_FX | PRIO | $10)
+    sta spr_attr
+    stz spr_size
+    rep #$20
+    lda sh_x+1,x
+    and #$00FF
+    sec
+    sbc #8
+    sta spr_x
+    lda sh_y+1,x
+    and #$00FF
+    sec
+    sbc #8
+    sta spr_y
+    sep #$20
+    jsr AddSprite
+@next:
+    inx
+    inx
+    cpx #NUM_SHOT*2
+    bne @loop
+    rts
+
+SHOT_S = $0160
+SHOT_D = $00F8
+shot_vx: .word SHOT_S, SHOT_D, 0, $10000-SHOT_D, $10000-SHOT_S, $10000-SHOT_D, 0, SHOT_D
+shot_vy: .word 0, SHOT_D, SHOT_S, SHOT_D, 0, $10000-SHOT_D, $10000-SHOT_S, $10000-SHOT_D
+
 ; ---- 種別ごとの性能 (添字 = 種別) -------------------------------------------
 ;                  -      ネズミ  へび    案山子  水車番
 e_speed:   .word 0,     $00C0,  $0070,  $0050,  $0030
@@ -906,5 +1133,6 @@ e_recover: .byte 0,     30,     40,     50,     70
 e_atk:     .byte 0,     12,     15,     20,     28
 e_regen:   .byte 0,     0,      1,      2,      3   ; 32F ごとの再生量
 e_hitw:    .byte 0,     12,     12,     18,     34
+e_npat:    .byte 1,     1,      1,      2,     3       ; 技の数
 e_hith:    .byte 0,     10,     10,     14,     30
 

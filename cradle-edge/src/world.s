@@ -248,6 +248,13 @@ LoadRoom:
     inx
     cpx #NUM_FX
     bne @clr3
+    ldx #$0000
+@clr4:
+    stz sh_t,x
+    inx
+    inx
+    cpx #NUM_SHOT*2
+    bne @clr4
     ; 配置物: 種類, X, Y, a, b
 @obj:
     lda (rp),y

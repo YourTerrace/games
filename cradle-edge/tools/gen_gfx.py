@@ -553,6 +553,14 @@ def sparks():
         x0, y0 = ox + 7.5 + math.cos(a) * 4, 7.5 + math.sin(a) * 4
         x1, y1 = ox + 7.5 + math.cos(a) * 7, 7.5 + math.sin(a) * 7
         d.line([(x0, y0), (x1, y1)], fill=3 if k % 2 else 2)
+    # コマ2,3: 飛んでくる種 (2 コマで回る)
+    for k, oy in ((0, 16), (1, 16)):
+        ox = 16 * k
+        d.ellipse([ox + 4, oy + 4, ox + 11, oy + 11], fill=4)
+        d.ellipse([ox + 5, oy + 5, ox + 10, oy + 10], fill=3)
+        hx, hy = (6, 6) if k == 0 else (8, 7)
+        d.point([(ox + hx, oy + hy), (ox + hx + 1, oy + hy)], fill=2)
+        d.point([(ox + 7, oy + 3 if k == 0 else oy + 12)], fill=4)
     return im
 
 

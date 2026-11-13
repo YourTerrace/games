@@ -22,6 +22,7 @@ DEAD_TIME   = 40            ; 倒れてから消えるまで (点滅しながら
 DEAD_VISIBLE= 0
 
 NUM_FX      = 4
+NUM_SHOT    = 8
 
 ST_FREE     = 0
 ST_ATTACK   = 1
@@ -143,6 +144,8 @@ p_charge:    .res 1          ; 溜め
 tpx:         .res 1          ; 敵が狙っている位置
 tpy:         .res 1
 bar_th:      .res 1
+hit_w:       .res 1
+hit_h:       .res 1
 room:        .res 1
 cur_set:     .res 1
 rp:          .res 2
@@ -218,6 +221,13 @@ d_atkdone:   .res DUMMY_END
 d_noregen:   .res DUMMY_END
 d_flip:      .res DUMMY_END
 d_tgt:       .res DUMMY_END
+d_pat:       .res DUMMY_END  ; 次に出す技
+sh_x:        .res NUM_SHOT*2 ; 飛び道具 (種)
+sh_y:        .res NUM_SHOT*2
+sh_vx:       .res NUM_SHOT*2
+sh_vy:       .res NUM_SHOT*2
+sh_t:        .res NUM_SHOT*2 ; 残り時間 (下位バイトのみ使う)
+sh_src:      .res NUM_SHOT*2 ; 撃った敵
 hud_buf:     .res 128
 col_map:     .res 256
 it_kind:     .res 8
@@ -406,6 +416,7 @@ MainLoop:
     jsr UpdateMother
 @world:
     jsr UpdateEnemies
+    jsr UpdateShots
     jsr UpdateDummies
     jsr BumpDummies
     lda ev_boss
@@ -1852,6 +1863,7 @@ DrawAll:
     ldy #$0000
     sty oam_idx
     jsr DrawFx
+    jsr DrawShots
     ; 手前の木人 → 剣 → 主人公 → 奥の木人 → 影
     ldx #$0000
 @front:
