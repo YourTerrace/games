@@ -23,6 +23,7 @@ DEAD_VISIBLE= 0
 
 NUM_FX      = 4
 NUM_SHOT    = 8
+NUM_TYPES   = 10            ; 敵の種別の数 (0 = なし)
 
 ST_FREE     = 0
 ST_ATTACK   = 1
@@ -182,6 +183,7 @@ room_exit:   .res 4          ; 上下左右の行き先 ($FF = なし)
 room_enter:  .res 1          ; 初入室時の台本 ($FF = なし)。room_exit の直後に置くこと
 room_music:  .res 1          ; 部屋の曲。room_enter の直後に置くこと
 boss_dead:   .res 1
+stag_dead:   .res 1
 ev_boss:     .res 1
 chk_room:    .res 1          ; 最後に休んだ焚き火
 chk_x:       .res 1
@@ -192,7 +194,7 @@ eqA:         .res 1          ; 暁手の剣
 eqB:         .res 1          ; 宵手の剣
 meal:        .res 1
 own:         .res 1          ; 持っている剣 (bit)
-marks:       .res 5          ; 見切り印 (敵の種別ごと)
+marks:       .res NUM_TYPES  ; 見切り印 (敵の種別ごと)
 p_str:       .res 1
 p_def:       .res 1
 p_justm:     .res 1          ; 見切った攻撃をジャスト回避した
@@ -213,7 +215,7 @@ cast_heal:   .res 1          ; 詠唱の長さ (護符で変わる)
 cast_over:   .res 1
 mq_exp:      .res 6          ; 熟練の経験 (連斬 / 溜め斬り / 返し刃)
 mq_lv:       .res 3          ; 熟練 Lv (1-5)
-chart:       .res 5          ; 母のカルテ (敵の種別ごと、崩壊させた回数)
+chart:       .res NUM_TYPES  ; 母のカルテ (敵の種別ごと、崩壊させた回数)
 chart_done:  .res 1          ; 完成したカルテの数
 over_amt:    .res 1          ; 過治癒 1 回で溜まる飽和
 pause_pg:    .res 1
@@ -248,7 +250,8 @@ d_atkdone:   .res DUMMY_END
 d_noregen:   .res DUMMY_END
 d_flip:      .res DUMMY_END
 d_tgt:       .res DUMMY_END
-d_pat:       .res DUMMY_END  ; 次に出す技
+d_pat:       .res DUMMY_END  ; 技の並びの何番目か
+d_pid:       .res DUMMY_END  ; 出している技
 sh_x:        .res NUM_SHOT*2 ; 飛び道具 (種)
 sh_y:        .res NUM_SHOT*2
 sh_vx:       .res NUM_SHOT*2
@@ -1184,6 +1187,9 @@ AttackHit:
     beq @next
     lda d_dead,x
     bne @next
+    lda d_state,x
+    cmp #ES_DOWN
+    beq @next
     lda d_hitid,x
     cmp swing_id
     beq @next
@@ -1285,9 +1291,12 @@ ApplyHit:
     lda stage_hand,y        ; 繁り特効 ×1.5 (へび・案山子・水車番)
     and sp_mask
     beq @no_sp
-    lda d_type,x
-    cmp #TYPE_SNAKE
-    bcc @no_sp
+    phy
+    jsr TypeToY
+    lda e_shige,y
+    ply
+    cmp #0
+    beq @no_sp
     jsr Boost150
 @no_sp:
     cpy #$0004              ; 見切った攻撃への返し刃 ×1.5
@@ -1310,8 +1319,9 @@ ApplyHit:
 @dead:
     stz d_hp,x
     sep #$20
-    lda #DEAD_TIME
-    sta d_dead,x
+    phy
+    jsr KillEnemy
+    ply
     rep #$20
     bra @knock
 @alive:
@@ -1363,14 +1373,27 @@ ApplyHit:
     ; 案山子は崩壊中か3段目以降でないとひるまない
     lda d_dead,x
     bne @stagger
-    lda d_type,x
-    cmp #TYPE_SCARE
-    bcc @stagger
+    lda d_state,x
+    cmp #ES_DOWN
+    beq @armor
     lda d_col,x
     bne @stagger
-    lda d_type,x            ; ボスは崩壊中しかひるまない
-    cmp #TYPE_BOSS
-    beq @armor
+    phy
+    jsr TypeToY
+    lda e_boss,y            ; ボスは崩壊中か目を回している時しかひるまない
+    sta t0
+    lda d_type,x
+    ply
+    cmp #TYPE_SCARE         ; 案山子と猪は 3 段目以降でひるむ
+    beq @heavy
+    cmp #TYPE_BOAR
+    beq @heavy
+    lda t0
+    beq @stagger
+    lda d_stun,x
+    bne @stagger
+    bra @armor
+@heavy:
     cpy #$0002
     bcs @stagger
 @armor:
@@ -1533,11 +1556,13 @@ UpdateDummies:
     beq @move
     dec d_dead,x
     bne @move
+    phx
+    jsr TypeToY
+    plx
+    lda e_boss,y
+    beq :+
     lda d_type,x
-    cmp #TYPE_BOSS
-    bne :+
-    lda #$01
-    sta ev_boss
+    sta ev_boss             ; 倒したボスの種別
 :   stz d_type,x            ; 消滅
     jmp @next
 @move:
@@ -1813,8 +1838,10 @@ BumpPair:
     lda #$0000
     sta d_hp,y
     sep #$20
-    lda #DEAD_TIME
-    sta d_dead,y
+    phx
+    tyx
+    jsr KillEnemy
+    plx
     bra @spark
 @store:
     sta d_hp,y
@@ -2253,10 +2280,14 @@ DrawShadows:
 @loop:
     lda d_type,x
     beq @next
-    cmp #TYPE_BOSS
-    beq @next
     lda d_dead,x
     bne @next
+    phx
+    jsr TypeToY
+    plx
+    lda e_kind,y            ; 大きな敵は影を描かない
+    cmp #2
+    beq @next
     rep #$20
     lda d_x+1,x
     and #$00FF
@@ -2499,6 +2530,9 @@ bar_level:  .byte 0, 1, 2, 2, 3, 4, 5, 6, 6, 7, 8    ; 0-10 → 8段階
 SetPal:     .incbin "set0.pal"
             .incbin "set1.pal"
             .incbin "set2.pal"
+            .incbin "set3.pal"
+            .incbin "set4.pal"
+            .incbin "set5.pal"
 BgPal:      .incbin "bg.pal"
 WindowChr:  .incbin "window.chr"
 Palette:    .incbin "palette.bin"
@@ -2507,9 +2541,7 @@ HudMap:     .incbin "hud.map"
 
 .segment "BANK1"
 ObjChr:     .incbin "obj.chr"
-SetChr:     .incbin "set0.chr"
-            .incbin "set1.chr"
-            .incbin "set2.chr"
+
 .segment "BANK2"
 BgChr:      .incbin "bg.chr"
 
@@ -2523,6 +2555,14 @@ SpcData:    .incbin "spc.bin"          ; 音源ドライバ・波形・曲 (起�
 
 .segment "BANK5"
 GlyphChr:   .incbin "glyph.chr"        ; 字の絵 (1 字 64 バイト、使う時に VRAM へ送る)
+
+.segment "BANK6"
+SetChr:     .incbin "set0.chr"         ; 部屋ごとのスプライト集 (1 集 4KB)
+            .incbin "set1.chr"
+            .incbin "set2.chr"
+            .incbin "set3.chr"
+            .incbin "set4.chr"
+            .incbin "set5.chr"
 
 ; ---- カートリッジヘッダ -----------------------------------------------------
 .segment "HEADER"

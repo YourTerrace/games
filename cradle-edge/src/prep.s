@@ -58,7 +58,7 @@ RecalcStats:
     bcc :+
     inc chart_done
 :   inx
-    cpx #$0005
+    cpx #NUM_TYPES
     bne @ch
     lda chart_done
     asl a
@@ -68,13 +68,7 @@ RecalcStats:
     adc #OVER_AMOUNT
     sta over_amt
     ; 力 = 10 + 見切り印の合計 ÷ 3 (+ 献立)
-    lda marks+1
-    clc
-    adc marks+2
-    clc
-    adc marks+3
-    clc
-    adc marks+4
+    jsr MarksTotal
     ldx #$0000
 @div:
     cmp #3
@@ -573,13 +567,7 @@ PauseDraw:
     jsr PutNum
     lda #SCR_P_MK
     jsr DrawLine
-    lda marks+1
-    clc
-    adc marks+2
-    clc
-    adc marks+3
-    clc
-    adc marks+4
+    jsr MarksTotal
     jsr PutNum
     ; 3, 4 行目: 敵ごとの見切り印
     lda #2
@@ -750,6 +738,19 @@ WinClose:
     sep #$20
     jmp WaitFrame
 
+; A = 見切り印の合計
+MarksTotal:
+    .a8
+    lda #0
+    ldx #$0001
+@l:
+    clc
+    adc marks,x
+    inx
+    cpx #NUM_TYPES
+    bne @l
+    rts
+
 ; ---- 熟練 ------------------------------------------------------------------
 ; Y = 段 → X = 熟練の種類 (連斬 0 / 溜め斬り 1 / 返し刃 2)
 StageGroup:
@@ -863,7 +864,7 @@ ChartWrite:
 ;               1   2    3    4    5
 mq_need:  .word 0, 40, 120, 300, 600    ; Lv に必要な経験
 stage_group: .byte 0, 0, 0, 0, 2, 1, 1  ; 段 → 熟練の種類
-e_grade:  .byte 0, 1, 1, 2, 3           ; 敵の格 (経験の量)
+e_grade:  .byte 0, 1, 1, 2, 3, 2, 1, 1, 2, 4   ; 敵の格 (経験の量)
 
 ; ---- 薬箱 ------------------------------------------------------------------
 MED_HEAL    = 60

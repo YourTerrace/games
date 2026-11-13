@@ -155,7 +155,10 @@ EnemyClip:
     stz d_vx,x
     stz d_vy,x
     sep #$20
+    sec                     ; 壁に当たった
+    rts
 @ok:
+    clc
     rts
 
 ; ---- 部屋 -------------------------------------------------------------------
@@ -278,10 +281,15 @@ LoadRoom:
     lda t3
     cmp #O_ENEMY
     bne @item
-    lda bi
-    cmp #TYPE_BOSS
+    lda bi                  ; 倒したボスは出さない
+    cmp #TYPE_MILL
     bne :+
-    lda boss_dead           ; 倒したボスは出さない
+    lda boss_dead
+    bne @obj
+:   lda bi
+    cmp #TYPE_STAG
+    bne :+
+    lda stag_dead
     bne @obj
 :   phy
     lda bi

@@ -467,6 +467,10 @@ MotherPunch:
 :   lda d_dead,x
     beq :+
     rts
+:   lda d_state,x           ; 倒れている癒え残りは拳では送れない
+    cmp #ES_DOWN
+    bne :+
+    rts
 :   lda #MOM_FIST*3         ; 拳 × 3 − 守
     sec
     sbc d_def,x
@@ -488,16 +492,15 @@ MotherPunch:
 @dead:
     stz d_hp,x
     sep #$20
-    lda #DEAD_TIME
-    sta d_dead,x
+    jsr KillEnemy
     bra @knock
 @alive:
     sta d_hp,x
     sep #$20
 @knock:
-    lda d_type,x            ; ボス以外は殴り飛ばす
-    cmp #TYPE_BOSS
-    beq @fx
+    jsr TypeToY             ; ボス以外は殴り飛ばす
+    lda e_boss,y
+    bne @fx
     rep #$20
     lda d_x+1,x
     and #$00FF
@@ -594,6 +597,13 @@ MotherOverdrive:
     rep #$20
     lda over_amt
     and #$00FF
+    sta t0
+    lda d_state,x           ; 倒れている癒え残りには 2 倍効く
+    and #$00FF
+    cmp #ES_DOWN
+    bne :+
+    asl t0
+:   lda t0
     clc
     adc d_sat,x
     sta d_sat,x

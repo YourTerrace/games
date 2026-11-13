@@ -442,11 +442,13 @@ def satbar():
 # 村人: 1 輪郭, 2 肌, 3 肌影, 4 白髪, 5 服, 6 服影, 7 赤, 8 白, 9 法衣, 10 法衣影, 11 緑, 12 靴
 NPC_PAL = [(0, 0, 0), (32, 24, 28), (236, 188, 148), (196, 140, 104), (200, 200, 208), (160, 112, 72),
            (112, 76, 48), (200, 72, 64), (244, 240, 228), (216, 224, 240), (160, 172, 200),
-           (72, 152, 96), (88, 56, 36), (0, 0, 0), (0, 0, 0), (0, 0, 0)]
+           (72, 152, 96), (88, 56, 36), (160, 168, 184), (56, 52, 72), (120, 88, 56)]
 
 
 def villager(kind):
-    """0=老人 1=おばさん 2=巡回司祭 (正面の立ち絵)"""
+    """0=老人 1=おばさん 2=巡回司祭 3=門番 4=狩人 5=狩人の長 6=ノエ (正面の立ち絵)"""
+    if kind >= 3:
+        return villager2(kind)
     im = new32()
     d = ImageDraw.Draw(im)
     R = d.rectangle
@@ -482,6 +484,178 @@ def villager(kind):
     d.point([(13, 10), (18, 10)], fill=1)
     d.line([(15, 13), (16, 13)], fill=3)
     return outline(im)
+
+
+def villager2(kind):
+    im = new32()
+    d = ImageDraw.Draw(im)
+    R = d.rectangle
+    body, shade = {3: (5, 6), 4: (11, 6), 5: (15, 6), 6: (14, 1)}[kind]
+    if kind == 6:   # ノエ: 背中の円匙
+        d.line([(22, 2), (22, 22)], fill=15, width=2)
+        d.polygon([(19, 0), (25, 0), (24, 5), (20, 5)], fill=13)
+    R([11, 15, 20, 26], fill=body)
+    R([19, 15, 20, 26], fill=shade)
+    if kind == 5:   # 毛皮の肩掛け
+        d.polygon([(9, 15), (22, 15), (21, 20), (10, 20)], fill=4)
+    if kind == 4:
+        R([11, 21, 20, 22], fill=6)
+    R([11, 26, 14, 29], fill=12)
+    R([17, 26, 20, 29], fill=12)
+    R([8, 17, 10, 23], fill=2)
+    R([21, 17, 23, 23], fill=2)
+    if kind == 3:   # 槍
+        d.line([(25, 1), (25, 29)], fill=6, width=1)
+        d.polygon([(24, 0), (26, 0), (25, -3)], fill=13)
+        d.point([(25, 0), (25, 1)], fill=13)
+    if kind == 4:   # 弓
+        d.arc([2, 6, 12, 28], 100, 260, fill=6)
+        d.line([(6, 7), (6, 27)], fill=8)
+    d.ellipse([11, 5, 20, 15], fill=2)
+    if kind == 3:   # 兜
+        d.pieslice([10, 3, 21, 13], 180, 360, fill=13)
+        d.line([(10, 8), (21, 8)], fill=1)
+    elif kind == 4:  # 頭巾
+        d.pieslice([9, 2, 22, 14], 180, 360, fill=11)
+        R([10, 7, 11, 13], fill=11)
+        R([20, 7, 21, 13], fill=11)
+    elif kind == 5:  # 白髪と髭
+        d.pieslice([10, 3, 21, 12], 180, 360, fill=4)
+        d.polygon([(12, 11), (19, 11), (17, 18), (14, 18)], fill=4)
+    else:           # ノエ: つば広の帽子
+        d.ellipse([6, 4, 25, 9], fill=15)
+        d.ellipse([10, 0, 21, 7], fill=15)
+        d.line([(10, 5), (21, 5)], fill=1)
+    d.point([(13, 10), (18, 10)], fill=1)
+    if kind != 5:
+        d.line([(15, 13), (16, 13)], fill=3)
+    return outline(im)
+
+
+def boar(k):
+    """茂み猪 (右向き)。0=歩き 1=突進 (頭を下げる)"""
+    im = new32()
+    d = ImageDraw.Draw(im)
+    lo = 2 if k else 0
+    d.ellipse([3, 9 + lo // 2, 24, 25], fill=13)          # 胴
+    d.ellipse([5, 10 + lo // 2, 22, 20], fill=12)
+    for x in (7, 11, 15, 19):                               # 背中の苔
+        d.line([(x, 9 + lo // 2), (x + 2, 7 + lo // 2)], fill=5)
+        d.point([(x + 1, 8 + lo // 2)], fill=4)
+    d.ellipse([18, 12 + lo, 30, 23 + lo], fill=13)        # 頭
+    d.rectangle([26, 17 + lo, 31, 21 + lo], fill=12)      # 鼻
+    d.point([(30, 18 + lo), (30, 20 + lo)], fill=1)
+    d.line([(27, 21 + lo), (29, 15 + lo)], fill=9)        # 牙
+    d.point([(23, 15 + lo)], fill=8)
+    d.polygon([(19, 12 + lo), (21, 8 + lo), (23, 12 + lo)], fill=13)   # 耳
+    leg = 2 if k else 0
+    for x, dx in ((6, -leg), (11, leg), (17, -leg), (21, leg)):
+        d.rectangle([x + dx, 23, x + dx + 2, 28], fill=13)
+        d.point([(x + dx, 28), (x + dx + 2, 28)], fill=1)
+    d.line([(3, 14), (0, 12)], fill=13)                     # 尾
+    return outline(im)
+
+
+def bee(d, k):
+    """花蜂 (右向き)。0,1=羽ばたき 2=溜め 3=急降下"""
+    y = 1 if k == 1 else 0
+    if k == 3:
+        d.ellipse([2, 6, 12, 12], fill=10)
+        d.line([(4, 6), (4, 12)], fill=13)
+        d.line([(7, 6), (7, 12)], fill=13)
+        d.ellipse([10, 6, 14, 11], fill=13)
+        d.point([(13, 8)], fill=8)
+        d.line([(0, 9), (2, 9)], fill=1)
+        d.ellipse([4, 1, 10, 5], fill=9)
+        return
+    d.ellipse([3, 6 + y, 11, 13 + y], fill=10)
+    d.line([(5, 6 + y), (5, 13 + y)], fill=13)
+    d.line([(8, 6 + y), (8, 13 + y)], fill=13)
+    d.ellipse([10, 5 + y, 15, 10 + y], fill=13)
+    d.point([(13, 7 + y)], fill=8)
+    if k == 2:
+        d.line([(3, 12 + y), (1, 15)], fill=1)               # 針を向ける
+    else:
+        d.line([(2, 10 + y), (1, 11 + y)], fill=1)
+    wy = 0 if k == 0 else 2
+    d.ellipse([4, wy, 10, wy + 5], fill=9)
+    d.ellipse([7, wy + 1, 12, wy + 5], fill=9)
+
+
+def shroom(d, k):
+    """胞子茸。0,1=ゆれる 2=膨らむ 3=胞子を吐く"""
+    big = 2 if k >= 2 else 0
+    sx = 1 if k == 1 else 0
+    d.rectangle([6, 9, 9, 15], fill=10)
+    d.rectangle([8, 9, 9, 15], fill=11)
+    d.pieslice([1 - big + sx, 1 - big, 14 + big + sx, 14], 180, 360, fill=8)
+    d.line([(1 - big + sx, 7), (14 + big + sx, 7)], fill=8)
+    for x, y in ((4, 3), (9, 2), (11, 5), (6, 5)):
+        d.point([(x + sx, y)], fill=9)
+    d.point([(6, 11), (9, 11)], fill=1)
+    if k == 3:
+        for x, y in ((1, 1), (14, 2), (0, 9), (15, 10), (3, 14), (12, 14)):
+            d.point([(x, y)], fill=4)
+
+
+def dog(d, k):
+    """眠らぬ番犬 (右向き、癒え残り)。0,1=走る 2=伏せて溜め 3=噛みつき"""
+    y = 2 if k == 2 else 0
+    d.ellipse([1, 6 + y, 11, 12 + y], fill=3)
+    d.ellipse([2, 6 + y, 10, 10 + y], fill=2)
+    if k == 3:
+        d.ellipse([9, 3, 15, 9], fill=2)
+        d.polygon([(13, 7), (16, 9), (12, 10)], fill=1)
+        d.point([(14, 9)], fill=9)
+    else:
+        d.ellipse([9, 3 + y, 14, 9 + y], fill=2)
+        d.rectangle([13, 6 + y, 15, 8 + y], fill=3)
+    d.polygon([(10, 4 + y), (11, 0 + y), (12, 4 + y)], fill=3)
+    d.point([(12, 5 + (0 if k == 3 else y))], fill=8)
+    d.line([(1, 7 + y), (0, 4 + y)], fill=3)
+    if k != 2:
+        a = 1 if k == 1 else 0
+        for x in (2 + a, 5 - a, 8 + a):
+            d.line([(x, 12), (x, 14)], fill=3)
+    for x, yy in ((4, 8), (7, 9)):                         # 縫い跡
+        d.point([(x, yy + y)], fill=7)
+
+
+def stag_parts():
+    """千年角の大鹿 (64x64) を 32x32 の4枚に。"""
+    im = Image.new("P", (64, 64), 0)
+    d = ImageDraw.Draw(im)
+    r = random.Random(11)
+    # 角 (300 年ぶん)
+    for side in (-1, 1):
+        cx = 32 + side * 6
+        pts = [(cx, 20), (cx + side * 10, 10), (cx + side * 20, 4), (cx + side * 28, 2)]
+        d.line(pts, fill=11, width=3)
+        for (x, y), ln in zip(pts[1:], (7, 6, 5)):
+            d.line([(x, y), (x + side * 2, y - ln)], fill=10, width=2)
+            d.line([(x, y), (x - side * 3, y - ln + 1)], fill=10, width=1)
+        for _ in range(5):
+            x, y = cx + side * r.randrange(4, 26), r.randrange(2, 16)
+            d.point([(x, y)], fill=14)
+    # 胴
+    d.ellipse([10, 30, 58, 58], fill=13)
+    d.ellipse([14, 32, 54, 52], fill=12)
+    for _ in range(40):
+        x, y = r.randrange(16, 54), r.randrange(32, 48)
+        d.point([(x, y)], fill=r.choice((4, 5, 6)))
+    # 脚
+    for x in (16, 24, 42, 50):
+        d.rectangle([x, 52, x + 3, 63], fill=13)
+    # 首と頭
+    d.polygon([(26, 34), (38, 34), (36, 22), (28, 22)], fill=12)
+    d.ellipse([24, 14, 40, 30], fill=12)
+    d.ellipse([28, 24, 36, 32], fill=13)
+    d.point([(28, 21), (36, 21)], fill=8)
+    d.point([(29, 21), (35, 21)], fill=9)
+    d.polygon([(22, 18), (25, 14), (26, 20)], fill=13)
+    d.polygon([(42, 18), (39, 14), (38, 20)], fill=13)
+    outline(im)
+    return [im.crop((x, y, x + 32, y + 32)) for y in (0, 32) for x in (0, 32)]
 
 
 def boss_parts():
@@ -587,12 +761,17 @@ SHADOW_SLOT = add("shadow", shadow(), FX_PAL)
 SPARK_SLOT = add("spark", sparks(), FX_PAL)
 assert len(SLOTS) == 24, len(SLOTS)     # 共通 24 枚。残り 8 枚は部屋ごとに差し替える
 
-# 部屋ごとに差し替えるスプライト集 (各8枚ぶん = 4096 バイト)。ネズミは常に先頭
+# 部屋ごとに差し替えるスプライト集 (各8枚ぶん = 4096 バイト)。
+# 同じ敵はどの集でも同じ位置に置く (コマ表を共有するため)
 SET_BASE = 24
+EMPTY = new32()
 SETS = [
-    ("village", NPC_PAL, [villager(0), villager(1), villager(2)]),
+    ("village", NPC_PAL, [villager(0), villager(1), villager(2), villager(3)]),
     ("field", ENEMY_PAL, [small4(rat), small4(snake), scarecrow(0), scarecrow(1), scarecrow(2)]),
-    ("boss", ENEMY_PAL, [small4(rat), small4(snake)] + [new32(), new32()] + boss_parts()),
+    ("mill", ENEMY_PAL, [small4(rat), small4(snake), EMPTY, EMPTY] + boss_parts()),
+    ("forest", ENEMY_PAL, [small4(rat), small4(bee), small4(shroom), small4(dog), boar(0), boar(1)]),
+    ("hamlet", NPC_PAL, [villager(4), villager(5), villager(6)]),
+    ("stag", ENEMY_PAL, [small4(rat), small4(bee), EMPTY, small4(dog)] + stag_parts()),
 ]
 for n, (name, pal, imgs) in enumerate(SETS):
     assert len(imgs) <= 8
@@ -603,10 +782,22 @@ for n, (name, pal, imgs) in enumerate(SETS):
     open(f"{OUT}/set{n}.pal", "wb").write(pal_bytes(pal))
     for i, im in enumerate(imgs):
         SLOTS.append((f"{name}_{i}", im, pal))
-RAT_SLOT, SNAKE_SLOT = SET_BASE, SET_BASE + 1
-SCARE_SLOT = [SET_BASE + 2, SET_BASE + 3, SET_BASE + 4]
 BOSS_SLOT = [SET_BASE + 4, SET_BASE + 5, SET_BASE + 6, SET_BASE + 7]
-NPC_SLOT = [SET_BASE, SET_BASE + 1, SET_BASE + 2]
+NPC_SLOT = [SET_BASE, SET_BASE + 1, SET_BASE + 2, SET_BASE + 3]   # 集の中の位置 = 村人の番号 % 4
+QUAD = (0, 2, 32, 34)
+# 敵の種別: (大きさ 0=16 1=32 2=64, 集の中の位置 [歩き0, 歩き1, 溜め, 攻撃])
+ENEMY_DRAW = [
+    (0, [(0, 0)] * 4),                                  # 0 なし
+    (0, [(0, q) for q in range(4)]),                     # 1 苔ネズミ
+    (0, [(1, q) for q in range(4)]),                     # 2 蔓へび
+    (1, [(2, 0), (2, 0), (3, 0), (4, 0)]),               # 3 芽吹き案山子
+    (2, [(4, 0)] * 4),                                   # 4 水車番
+    (1, [(4, 0), (4, 0), (5, 0), (5, 0)]),               # 5 茂み猪
+    (0, [(1, q) for q in range(4)]),                     # 6 花蜂
+    (0, [(2, q) for q in range(4)]),                     # 7 胞子茸
+    (0, [(3, q) for q in range(4)]),                     # 8 眠らぬ番犬
+    (2, [(4, 0)] * 4),                                   # 9 千年角の大鹿
+]
 
 
 def slot_tile(i):
@@ -733,11 +924,20 @@ L.append("mom_frame_tbl:")
 for dname, flip in (("down", 0), ("up", 0), ("side", 0x40), ("side", 0)):
     L.append("  .byte " + ", ".join(entry(MOM_SLOT[dname], flip) for pz in ("stand", "walk")))
 L.append(f"mom_cast_frame: .byte {entry(MOM_CAST_SLOT)}")
-L.append("scare_frame_tbl: .byte " + ", ".join(entry(x) for x in SCARE_SLOT))
+def ent_q(pos, q):
+    t, page = slot_tile(SET_BASE + pos)
+    return f"${(t + QUAD[q]) & 0xFF:02X}, ${page:02X}" if q else f"${t:02X}, ${page:02X}"
+
+
+L.append("; 敵の種別ごと: 大きさ / 4 コマ (歩き0, 歩き1, 溜め, 攻撃) = tile, flags")
+L.append("e_kind: .byte " + ", ".join(str(k) for k, _ in ENEMY_DRAW))
+L.append("e_frm:")
+for k, frames in ENEMY_DRAW:
+    L.append("  .byte " + ", ".join(ent_q(p, q) for p, q in frames))
 L.append("boss_frame_tbl: .byte " + ", ".join(entry(x) for x in BOSS_SLOT))
 L.append("npc_frame_tbl: .byte " + ", ".join(entry(x) for x in NPC_SLOT))
 L.append("quad_tile: .byte 0, 2, 32, 34   ; 32x32 スロット内の 16x16 コマ")
-for nm, slot in (("RAT", RAT_SLOT), ("SNAKE", SNAKE_SLOT), ("SATBAR", SATBAR_SLOT),
+for nm, slot in (("SATBAR", SATBAR_SLOT),
                  ("SHADOW", SHADOW_SLOT), ("SPARK", SPARK_SLOT)):
     t, page = slot_tile(slot)
     L.append(f"{nm}_TILE = ${t:02X}")

@@ -6,12 +6,19 @@
 TYPE_RAT    = 1
 TYPE_SNAKE  = 2
 TYPE_SCARE  = 3
-; TYPE_BOSS = 4 は rooms.inc で定義
+TYPE_MILL   = 4             ; 水車番 (序章のボス)
+TYPE_BOAR   = 5
+TYPE_BEE    = 6
+TYPE_SHROOM = 7
+TYPE_DOG    = 8
+TYPE_STAG   = 9             ; 千年角の大鹿 (1章のボス)
 
 ES_APPROACH = 0
 ES_WINDUP   = 1
 ES_ATTACK   = 2
 ES_RECOVER  = 3
+ES_DOWN     = 4             ; 癒え残りが倒れている (時間で起き上がる)
+DOWN_TIME   = 150           ; 2 フレームに 1 ずつ減る (5 秒)
 
 ; X = 敵 → Y = 種別 (バイト表の添字)
 TypeToY:
@@ -160,6 +167,17 @@ UpdateEnemies:
     beq :+
     jmp @next
 :   jsr EnemySavePos
+    lda d_state,x           ; 倒れている癒え残りは、時間が来れば起き上がる
+    cmp #ES_DOWN
+    bne @up
+    lda tick
+    and #$01
+    bne :+
+    dec d_timer,x
+    bne :+
+    jsr EnemyRevive
+:   jmp @next
+@up:
     jsr EnemyRegen
     lda d_col,x             ; 崩壊中は動けない
     beq :+
@@ -208,6 +226,8 @@ UpdateEnemies:
     lda d_type,x
     beq :+
     jsr EnemyClip
+    bcc :+
+    jsr WallStun
 :   inx
     inx
     cpx #DUMMY_END
@@ -227,9 +247,9 @@ EnemyTarget:
     lda m_tac               ; さがってて の母は、詠唱していなければ狙われない
     cmp #TAC_BACK
     beq @player
-    lda d_type,x
-    cmp #TYPE_SNAKE
-    bne @player
+    jsr TypeToY
+    lda e_hunt,y            ; 母を狙う種
+    beq @player
 @mom:
     lda #$01
     sta d_tgt,x
@@ -299,12 +319,26 @@ EnemyApproach:
     sta d_state,x
     lda e_windup,y
     sta d_timer,x
-    lda d_pat,x             ; 技を順に回す
+    lda d_pat,x             ; 技を順に回す (d_pat = 何番目, d_pid = 技)
     inc a
     cmp e_npat,y
     bcc :+
     lda #0
 :   sta d_pat,x
+    sta t0
+    tya
+    asl a
+    asl a
+    clc
+    adc t0
+    phy
+    rep #$20
+    and #$00FF
+    tay
+    sep #$20
+    lda e_pats,y
+    sta d_pid,x
+    ply
     jmp EnemyAim
 @move:
     rep #$20
@@ -445,7 +479,7 @@ EnemyAttackMove:
     sta hit_w
     lda e_hith,y
     sta hit_h
-    lda d_pat,x
+    lda d_pid,x
     cmp #PAT_SWEEP
     bne :+
     lda #56
@@ -689,9 +723,10 @@ FacePlayerTo:
 ; ボスは硬直が明けるたび、手下が少なければ苔ネズミを呼ぶ
 BossSummon:
     .a8
-    lda d_type,x
-    cmp #TYPE_BOSS
-    bne @out
+    jsr TypeToY
+    lda e_minion,y
+    beq @out
+    sta bi                  ; 呼ぶ手下
     ldy #$0000
     stz t0
 @count:
@@ -714,14 +749,14 @@ BossSummon:
     clc
     adc #20
     sta t2
-    lda #TYPE_RAT
+    lda bi
     jsr SpawnEnemy
     plx
 @out:
     rts
 
 ; ---- 敵の描画 ---------------------------------------------------------------
-; X = 敵 → A = コマ番号
+; X = 敵 → A = コマ番号 (0,1 歩き / 2 溜め・ひるみ / 3 攻撃)
 EnemyFrame:
     .a8
     lda d_col,x
@@ -731,36 +766,24 @@ EnemyFrame:
     lda d_state,x
     beq @walk
     cmp #ES_WINDUP
-    beq @wind
+    beq @two
+    cmp #ES_DOWN
+    beq @two
     cmp #ES_ATTACK
     beq @atk
-@zero:
     lda #0
     rts
 @walk:
-    lda d_type,x
-    cmp #TYPE_SCARE
-    beq @zero
     lda tick
     lsr a
     lsr a
     lsr a
     and #$01
     rts
-@wind:
-    lda d_type,x
-    cmp #TYPE_SCARE
-    beq @one
 @two:
     lda #2
     rts
-@one:
-    lda #1
-    rts
 @atk:
-    lda d_type,x
-    cmp #TYPE_SCARE
-    beq @two
     lda #3
     rts
 
@@ -800,40 +823,42 @@ DrawDummy:
     beq :+
     lda #(PAL_FLASH | PRIO)
     sta t3
-:   lda d_type,x
-    cmp #TYPE_BOSS
+    lda d_state,x           ; 倒れている癒え残りは灰色にゆっくり明滅
+    cmp #ES_DOWN
+    bne :+
+    lda tick
+    and #$10
+    beq :+
+    lda #(PAL_FLASH | PRIO)
+    sta t3
+:   jsr TypeToY
+    lda e_kind,y
+    cmp #2
     bne :+
     jmp DrawBoss
-:   jsr EnemyFrame
+:   sta t2                  ; 大きさ
+    jsr EnemyFrame          ; 表の位置 = 種別 × 8 + コマ × 2
+    asl a
     sta t0
-    stz t0+1
     lda d_type,x
-    cmp #TYPE_SCARE
-    beq @big
-    ; 16x16 の小型
-    ldy t0
-    lda quad_tile,y
-    sta spr_tile
-    lda d_type,x
-    cmp #TYPE_RAT
-    bne @snake
-    lda spr_tile
+    asl a
+    asl a
+    asl a
     clc
-    adc #RAT_TILE
+    adc t0
+    rep #$20
+    and #$00FF
+    tay
+    sep #$20
+    lda e_frm,y
     sta spr_tile
-    lda #RAT_NAME
-    bra @sattr
-@snake:
-    lda spr_tile
-    clc
-    adc #SNAKE_TILE
-    sta spr_tile
-    lda #SNAKE_NAME
-@sattr:
+    lda e_frm+1,y
     ora t3
     ora d_flip,x
     sta spr_attr
-    stz spr_size
+    lda t2
+    bne @big
+    stz spr_size            ; 16x16
     rep #$20
     lda d_x+1,x
     and #$00FF
@@ -849,17 +874,7 @@ DrawDummy:
     jsr AddSprite
     jmp DrawSatBar
 @big:
-    rep #$20
-    lda t0
-    asl a
-    tay
-    sep #$20
-    lda scare_frame_tbl,y
-    sta spr_tile
-    lda scare_frame_tbl+1,y
-    ora t3
-    sta spr_attr
-    lda #$02
+    lda #$02                ; 32x32
     sta spr_size
     rep #$20
     lda d_x+1,x
@@ -874,7 +889,7 @@ DrawDummy:
     sta spr_y
     sep #$20
     jsr AddSprite
-    ; fallthrough
+    jmp DrawSatBar
 
 ; X = ボス。32x32 を 2x2 枚並べる。t3 = パレット
 DrawBoss:
@@ -968,6 +983,62 @@ DrawSatBar:
     sep #$20
     rts
 
+; X = HP が尽きた敵。癒え残りは (崩壊させていなければ) 倒れるだけ
+KillEnemy:
+    .a8
+    jsr TypeToY
+    lda e_undead,y
+    beq @die
+    lda d_noregen,x
+    bne @die
+    lda #ES_DOWN
+    sta d_state,x
+    lda #DOWN_TIME
+    sta d_timer,x
+    stz d_stun,x
+    rep #$20
+    stz d_hp,x
+    sep #$20
+    rts
+@die:
+    lda #DEAD_TIME
+    sta d_dead,x
+    rts
+
+EnemyRevive:
+    .a8
+    rep #$20
+    lda d_maxhp,x
+    sta d_hp,x
+    sep #$20
+    stz d_state,x
+    lda #16
+    sta d_flash,x
+    lda #SE_CAST
+    jmp PlaySe
+
+; X = 敵。突進中に壁へぶつかったら目を回す (種による)
+WallStun:
+    .a8
+    lda d_state,x
+    cmp #ES_ATTACK
+    bne @out
+    jsr TypeToY
+    lda e_wallstun,y
+    beq @out
+    stz d_state,x
+    lda #90
+    sta d_stun,x
+    lda #8
+    sta shake_t
+    lda #12
+    sta d_flash,x
+    lda #SE_HEAVY
+    jsr PlaySe
+    jmp SpawnSparkAtDummy
+@out:
+    rts
+
 ; ---- 技 ---------------------------------------------------------------------
 PAT_LUNGE   = 0             ; 突進
 PAT_SEEDS   = 1             ; 種を撒く (その場で)
@@ -977,7 +1048,7 @@ SHOT_DMG    = 12
 ; X = 敵。攻撃に入った瞬間の処理
 PatternStart:
     .a8
-    lda d_pat,x
+    lda d_pid,x
     beq @done
     rep #$20                ; 突進以外はその場で
     stz d_avx,x
@@ -989,10 +1060,11 @@ PatternStart:
     sta d_atkdone,x
     lda #SE_DODGE
     jsr PlaySe
-    ldy #$0000              ; 案山子は斜め 4 方向、ボスは 8 方向
-    lda d_type,x
-    cmp #TYPE_BOSS
-    beq @ring
+    jsr TypeToY             ; 8 方向か、斜め 4 方向か
+    lda e_boss,y
+    ldy #$0000
+    cmp #0
+    bne @ring
     ldy #$0002
 @ring:
     phy
@@ -1000,9 +1072,12 @@ PatternStart:
     ply
     iny
     iny
-    lda d_type,x
-    cmp #TYPE_BOSS
-    beq :+
+    phy
+    jsr TypeToY
+    lda e_boss,y
+    ply
+    cmp #0
+    bne :+
     iny
     iny
 :   cpy #$0010
@@ -1176,19 +1251,37 @@ shot_vx: .word SHOT_S, SHOT_D, 0, $10000-SHOT_D, $10000-SHOT_S, $10000-SHOT_D, 0
 shot_vy: .word 0, SHOT_D, SHOT_S, SHOT_D, 0, $10000-SHOT_D, $10000-SHOT_S, $10000-SHOT_D
 
 ; ---- 種別ごとの性能 (添字 = 種別) -------------------------------------------
-;                  -      ネズミ  へび    案山子  水車番
-e_speed:   .word 0,     $00C0,  $0070,  $0050,  $0030
-e_atkspd:  .word 0,     $0300,  $0280,  $0200,  $0180
-e_hp:      .word 0,     45,     60,     140,    500
-e_defh:    .word 0,     2,      1,      3,      3   ; 守 ÷ 2
-e_satmax:  .word 0,     40,     50,     60,     90
-e_range:   .byte 0,     40,     28,     38,     52
-e_windup:  .byte 0,     24,     30,     40,     50
-e_atkfr:   .byte 0,     14,     10,     16,     22
-e_recover: .byte 0,     30,     40,     50,     70
-e_atk:     .byte 0,     12,     15,     20,     28
-e_regen:   .byte 0,     0,      1,      2,      3   ; 32F ごとの再生量
-e_hitw:    .byte 0,     12,     12,     18,     34
-e_npat:    .byte 1,     1,      1,      2,     3       ; 技の数
-e_hith:    .byte 0,     10,     10,     14,     30
+;                -   ネズミ へび  案山子 水車番 猪    蜂    茸    番犬  大鹿
+e_speed:   .word 0, $00C0, $0070, $0050, $0030, $0090, $0110, $0000, $00D0, $0040
+e_atkspd:  .word 0, $0300, $0280, $0200, $0180, $0400, $0380, $0000, $0300, $0480
+e_hp:      .word 0,    45,    60,   140,   500,   140,    50,    90,    80,   900
+e_defh:    .word 0,     2,     1,     3,     3,     4,     1,     2,     3,     4   ; 守 ÷ 2
+e_satmax:  .word 0,    40,    50,    60,    90,    80,    40,    60,    70,   120
+e_range:   .byte 0,    40,    28,    38,    52,    72,    48,    40,    36,   120
+e_windup:  .byte 0,    24,    30,    40,    50,    40,    20,    40,    22,    50
+e_atkfr:   .byte 0,    14,    10,    16,    22,    30,    12,    20,    12,    34
+e_recover: .byte 0,    30,    40,    50,    70,    60,    30,    60,    35,    70
+e_atk:     .byte 0,    12,    15,    20,    28,    18,    12,    14,    16,    30
+e_regen:   .byte 0,     0,     1,     2,     3,     0,     0,     1,     0,     2   ; 32F ごとの再生量
+e_hitw:    .byte 0,    12,    12,    18,    34,    16,    10,    30,    12,    34
+e_hith:    .byte 0,    10,    10,    14,    30,    12,    10,    24,    10,    28
+e_npat:    .byte 1,     1,     1,     2,     3,     1,     1,     1,     1,     3   ; 技の数
+e_hunt:    .byte 0,     0,     1,     0,     0,     0,     1,     0,     0,     0   ; 母を狙う
+e_boss:    .byte 0,     0,     0,     0,     1,     0,     0,     0,     0,     1
+e_minion:  .byte 0,     0,     0,     0, TYPE_RAT, 0,   0,     0,     0, TYPE_BEE ; ボスが呼ぶ手下
+e_undead:  .byte 0,     0,     0,     0,     0,     0,     0,     0,     1,     0   ; 癒え残り
+e_wallstun:.byte 0,     0,     0,     0,     0,     1,     0,     0,     0,     1   ; 壁で目を回す
+e_shige:   .byte 0,     0,     1,     1,     1,     0,     0,     1,     0,     1   ; 繁り (苔断ちが効く)
+; 技の並び (種別ごとに 4 つまで)
+e_pats:
+    .byte 0, 0, 0, 0        ; なし
+    .byte 0, 0, 0, 0        ; ネズミ: 突進
+    .byte 0, 0, 0, 0        ; へび: 突進
+    .byte 0, 1, 0, 0        ; 案山子: 振り下ろし, 種
+    .byte 0, 1, 2, 0        ; 水車番: のしかかり, 種, 薙ぎ払い
+    .byte 0, 0, 0, 0        ; 猪: 突進
+    .byte 0, 0, 0, 0        ; 蜂: 急降下
+    .byte 2, 0, 0, 0        ; 茸: 胞子 (その場で広く)
+    .byte 0, 0, 0, 0        ; 番犬: 噛みつき
+    .byte 0, 2, 0, 0        ; 大鹿: 突進, 踏みつけ, 突進
 
