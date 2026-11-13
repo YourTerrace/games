@@ -9,6 +9,7 @@ WIN_BYTES   = 640
 C_END       = $FF
 C_NL        = $FE
 C_PAGE      = $FD
+C_ESC       = $FC            ; 次のバイト + 252 の字
 NUM_ITEMS   = 8
 SRAM        = $700000
 
@@ -522,7 +523,9 @@ TryInteract:
     beq @fire
     cmp #O_CHEST
     bne @talk
-    lda it_a,x              ; 箱: 剣が入っていれば手に入れる
+    lda it_a,x              ; 箱: 剣 (0-7) か護符 (16-) が入っている
+    cmp #16
+    bcs @amulet
     rep #$20
     and #$00FF
     tay
@@ -533,6 +536,21 @@ TryInteract:
     lda own
     ora bit_tbl,y
     sta own
+    bra @got
+@amulet:
+    sec
+    sbc #16
+    rep #$20
+    and #$00FF
+    tay
+    sep #$20
+    lda am_own
+    and bit_tbl8,y
+    bne @empty
+    lda am_own
+    ora bit_tbl8,y
+    sta am_own
+@got:
     lda #SE_JUST
     jsr PlaySe
 @talk:
@@ -618,15 +636,70 @@ DrawNpcs:
     rts
 
 ; ---- 会話 -------------------------------------------------------------------
-; A = 文字番号。txt_addr の位置に 1 字 (2x2 タイル) 書いて 1 フレーム待つ
+; 台本の 1 字。A = 読んだバイト ($FC なら次のバイト + 252 の字)
+ScriptGlyph:
+    .a8
+    cmp #C_ESC
+    bne PutGlyph
+    lda (scp)
+    rep #$20
+    inc scp
+    and #$00FF
+    clc
+    adc #252
+    bra PutGlyph16
+
+; A = 文字番号。txt_addr の位置に 1 字 (2x2 タイル) 書いて 1 フレーム待つ。
+; 字の絵は、画面上の位置ごとに決まった VRAM の枠へその都度送る
+; (同時に画面に出せる字は位置の数だけ。全体の字種は ROM に入るだけ使える)
 PutGlyph:
     .a8
     rep #$20
     and #$00FF
+PutGlyph16:
+    .a16
+    asl a                   ; 字の絵 = 64 バイト
+    asl a
+    asl a
+    asl a
     asl a
     asl a
     clc
-    adc #(GLYPH_BASE | $2000)
+    adc #.loword(GlyphChr)
+    sta gq_src
+    lda txt_addr            ; 枠 = (行 / 2) × 16 + (桁 / 2)
+    sec
+    sbc #VRAM_BG3_MAP
+    sta gw0
+    and #$001F
+    lsr a
+    sta gw1
+    lda gw0
+    lsr a
+    lsr a
+    lsr a
+    lsr a
+    lsr a
+    lsr a
+    asl a
+    asl a
+    asl a
+    asl a
+    clc
+    adc gw1
+    asl a
+    asl a
+    clc
+    adc #GLYPH_BASE
+    sta gw1                 ; 先頭のタイル番号
+    asl a
+    asl a
+    asl a
+    clc
+    adc #VRAM_BG3_CHR
+    sta gq_dst
+    lda gw1
+    ora #$2000
     sta vq+2
     inc a
     sta vq+4
@@ -645,6 +718,7 @@ PutGlyph:
     sta txt_addr
     sep #$20
     lda #$01
+    sta gq_n
     sta vq_n
     jmp WaitFrame
 
@@ -698,7 +772,7 @@ ShowScript:
     sep #$20
     bra @char
 @glyph:
-    jsr PutGlyph
+    jsr ScriptGlyph
     bra @char
 @next:
     jsr WaitButton
@@ -732,14 +806,15 @@ DrawLine:
     sep #$20
     cmp #C_END
     beq @done
-    jsr PutGlyph
+    jsr ScriptGlyph
     bra @char
 @done:
     rts
 
 ; ---- セーブ (バッテリーバックアップ) ----------------------------------------
 ;  +0 'C' +1 'E' +2 部屋 +3 X +4 Y +5 ボス撃破 +6..13 入室済み
-;  +14 暁手 +15 宵手 +16 献立 +17 持っている剣 +18..21 見切り印(種別1-4) +22 薬箱 +23 検査用の和
+;  +14 暁手 +15 宵手 +16 献立 +17 持っている剣 +18..21 見切り印(種別1-4) +22 薬箱
+;  +23 持っている護符 +24 護符1 +25 護符2 +26 検査用の和
 SaveGame:
     .a8
     lda #'C'
@@ -778,8 +853,14 @@ SaveGame:
     bne @mk
     lda kit
     sta f:SRAM+22
-    jsr SaveSum
+    lda am_own
     sta f:SRAM+23
+    lda am1
+    sta f:SRAM+24
+    lda am2
+    sta f:SRAM+25
+    jsr SaveSum
+    sta f:SRAM+26
     rts
 
 SaveSum:
@@ -790,7 +871,7 @@ SaveSum:
     clc
     adc f:SRAM+2,x
     inx
-    cpx #21
+    cpx #24
     bne @loop
     rts
 
@@ -804,7 +885,7 @@ HasSave:
     cmp #'E'
     bne @no
     jsr SaveSum
-    cmp f:SRAM+23
+    cmp f:SRAM+26
     bne @no
     sec
     rts
@@ -839,6 +920,12 @@ LoadGame:
     sta own
     lda f:SRAM+22
     sta kit
+    lda f:SRAM+23
+    sta am_own
+    lda f:SRAM+24
+    sta am1
+    lda f:SRAM+25
+    sta am2
     stz marks
     ldx #$0000
 @mk:
@@ -861,6 +948,11 @@ NewGame:
     stz kit
     stz med_sel
     stz m_tac
+    lda #AMB_FORGE          ; 鍛冶屋の前掛けだけ持って、身につけて出る
+    sta am_own
+    lda #1
+    sta am1
+    stz am2
     ldx #$0000
 @mk:
     stz marks,x

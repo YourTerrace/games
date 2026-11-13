@@ -11,6 +11,14 @@ MEAL_MEAT   = 1             ; 力 +3
 MEAL_ROOT   = 2             ; 守 +3
 MEAL_DEW    = 3             ; 慈力の回復が速い
 MARK_MAX    = 3
+NUM_ROWS    = 6             ; 支度メニューの行数 (窓に見えるのは 4 行)
+NUM_AMULETS = 7             ; なし + 6
+AMB_FORGE   = 1 << 1        ; 鍛冶屋の前掛け: 守 +3
+AMB_APRON   = 1 << 2        ; 母の割烹着: 母の受ける傷 3/4
+AMB_SHOES   = 1 << 3        ; 軽業の靴: 回避 1.25 倍
+AMB_PATCH   = 1 << 4        ; 見切りの眼帯: ジャスト回避 +2F、無敵 −2F
+AMB_GLOVE   = 1 << 5        ; 父の手袋: 溜めが速い
+AMB_QUICK   = 1 << 6        ; 早口の護符: 詠唱が速い
 
 RecalcStats:
     .a8
@@ -35,7 +43,51 @@ RecalcStats:
     adc #10
     sta p_str
     stz p_def
-    lda meal
+    ; 護符
+    ldx am1
+    lda am1
+    rep #$20
+    and #$00FF
+    tax
+    sep #$20
+    lda bit_tbl8,x
+    sta am_on
+    lda am2
+    rep #$20
+    and #$00FF
+    tax
+    sep #$20
+    lda bit_tbl8,x
+    ora am_on
+    and #$FE                ; bit0 = なし
+    sta am_on
+    and #AMB_FORGE
+    beq :+
+    lda #3
+    sta p_def
+:   lda #CHARGE_LV1
+    sta ch_lv1
+    lda #CHARGE_LV2
+    sta ch_lv2
+    lda am_on
+    and #AMB_GLOVE
+    beq :+
+    lda #30
+    sta ch_lv1
+    lda #70
+    sta ch_lv2
+:   lda #HEAL_TIME
+    sta cast_heal
+    lda #OVER_TIME
+    sta cast_over
+    lda am_on
+    and #AMB_QUICK
+    beq :+
+    lda #HEAL_TIME*4/5
+    sta cast_heal
+    lda #OVER_TIME*4/5
+    sta cast_over
+:   lda meal
     cmp #MEAL_MEAT
     bne :+
     lda p_str
@@ -45,7 +97,9 @@ RecalcStats:
 :   lda meal
     cmp #MEAL_ROOT
     bne :+
-    lda #3
+    lda p_def
+    clc
+    adc #3
     sta p_def
 :   ; 剣
     rep #$20
@@ -157,19 +211,35 @@ NextSword:
     lda t2
     rts
 
+; A = いまの護符, t0 = もう一方の護符 → A = 次の護符 (なし を含めて回る)
+NextAmulet:
+    .a8
+    sta t1
+    stz t1+1
+@loop:
+    lda t1
+    inc a
+    cmp #NUM_AMULETS
+    bcc :+
+    lda #0
+:   sta t1
+    beq @ok                 ; なし はいつでも
+    cmp t0
+    beq @loop
+    ldx t1
+    lda am_own
+    and bit_tbl8,x
+    beq @loop
+@ok:
+    lda t1
+    rts
+
 ; ---- 焚き火の支度メニュー ---------------------------------------------------
 PrepMenu:
     .a8
-    jsr WinOpen
     stz menu_cur
-    lda #0
-    jsr MenuLine
-    lda #1
-    jsr MenuLine
-    lda #2
-    jsr MenuLine
-    lda #3
-    jsr MenuLine
+    stz menu_top
+    jsr MenuRedraw
 @loop:
     stz pad_new
     stz pad_new+1
@@ -187,12 +257,18 @@ PrepMenu:
     lda menu_cur
     inc a
 @move:
-    and #$03
-    pha
+    bpl :+                  ; 端で反対側へ回る
+    lda #NUM_ROWS-1
+:   cmp #NUM_ROWS
+    bcc :+
+    lda #0
+:   pha
     lda menu_cur
     sta menu_line
     pla
     sta menu_cur
+    jsr MenuScroll          ; 見えない行へ動いたら描き直す
+    bcs @loop
     lda menu_line           ; 前の行と今の行のカーソルを書き直す
     jsr MenuCursor
     lda menu_cur
@@ -214,6 +290,10 @@ PrepMenu:
     beq @swB
     cmp #2
     beq @meal
+    cmp #4
+    beq @am1
+    cmp #5
+    beq @am2
     lda kit                 ; 薬箱
     inc a
     and #$03
@@ -252,6 +332,20 @@ PrepMenu:
     inc a
     and #$03
     sta meal
+    bra @redraw
+@am1:
+    lda am2
+    sta t0
+    lda am1
+    jsr NextAmulet
+    sta am1
+    bra @redraw
+@am2:
+    lda am1
+    sta t0
+    lda am2
+    jsr NextAmulet
+    sta am2
 @redraw:
     lda #SE_DENY
     jsr PlaySe
@@ -259,11 +353,70 @@ PrepMenu:
     jsr MenuLine
     jmp @loop
 
+; 窓を開き直し、menu_top から 4 行描く
+MenuRedraw:
+    .a8
+    jsr WinOpen
+    lda menu_top
+    sta t3+1
+@l:
+    lda t3+1
+    jsr MenuLine
+    inc t3+1
+    lda t3+1
+    sec
+    sbc menu_top
+    cmp #4
+    bcc @l
+    rts
+
+; カーソルが窓の外に出たら menu_top を動かして描き直し、キャリーを立てる
+MenuScroll:
+    .a8
+    lda menu_cur
+    cmp menu_top
+    bcc @up
+    sec
+    sbc menu_top
+    cmp #4
+    bcs @down
+    clc
+    rts
+@up:
+    lda menu_cur
+    sta menu_top
+    bra @re
+@down:
+    lda menu_cur
+    sec
+    sbc #3
+    sta menu_top
+@re:
+    jsr MenuRedraw
+    sec
+    rts
+
+; A = 行。窓に見えている行ならキャリーを立てる
+MenuVisible:
+    .a8
+    sec
+    sbc menu_top
+    cmp #4
+    bcs @no
+    sec
+    rts
+@no:
+    clc
+    rts
+
 ; A = 行。行頭のカーソルだけ書く
 MenuCursor:
     .a8
     sta menu_line
-    jsr MenuAddr
+    jsr MenuVisible
+    bcs :+
+    rts
+:   jsr MenuAddr
     lda menu_line
     cmp menu_cur
     bne :+
@@ -275,7 +428,12 @@ MenuCursor:
 ; A = 行。カーソル + 見出し + 値
 MenuLine:
     .a8
-    jsr MenuCursor
+    pha
+    jsr MenuVisible
+    pla
+    bcs :+
+    rts
+:   jsr MenuCursor
     lda menu_line
     clc
     adc #SCR_M_L0
@@ -301,6 +459,10 @@ MenuLine:
     lda menu_line
     cmp #3
     beq @k
+    cmp #4
+    beq @x1
+    cmp #5
+    beq @x2
     lda meal
     clc
     adc #SCR_MEAL0
@@ -310,12 +472,24 @@ MenuLine:
     clc
     adc #SCR_KIT0
     jmp DrawLine
+@x1:
+    lda am1
+    clc
+    adc #SCR_AM0
+    jmp DrawLine
+@x2:
+    lda am2
+    clc
+    adc #SCR_AM0
+    jmp DrawLine
 
 ; menu_line の行頭の VRAM 番地を txt_addr に
 MenuAddr:
     .a8
     rep #$20
     lda menu_line
+    sec
+    sbc menu_top
     and #$00FF
     xba
     lsr a
@@ -333,6 +507,7 @@ PauseMenu:
     stz pad_new+1
     jsr WinOpen
     stz menu_cur
+    stz menu_top
     jsr PauseTac
     ; 2 行目: 力 守 印
     lda #1
@@ -593,7 +768,8 @@ med_letter: .byte 18, 20, 28          ; HUD フォントの H / J / R
 sw_atk:  .byte 12,        10,        16,     22
 sw_wt:   .byte 4,         4,         4,      8
 sw_flag: .byte 0,         0,         1,      0      ; bit0 = 繁り特効
-bit_tbl: .byte 1, 2, 4, 8
+bit_tbl:
+bit_tbl8: .byte 1, 2, 4, 8, 16, 32, 64, 128
 ; 段ごとに使う手: bit0 = 暁手, bit1 = 宵手
 stage_hand: .byte 1, 2, 1, 3, 2, 3, 3
 ; 重さ合計 〜8 / 9〜12 / 13〜16 / 17〜 の、発生フレームの増減

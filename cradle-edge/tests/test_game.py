@@ -126,9 +126,19 @@ emu.run(10)
 emu.run(2, "A")             # 献立: なし → 鹿肉
 emu.run(40)
 shot("03_prep")
+check("最初は前掛けを身につけている (守+3)", b("am1") == 1 and b("p_def") == 3)
+for _ in range(2):
+    emu.run(2, "DOWN")
+    emu.run(10)
+emu.run(60)                 # 窓の外の行へ動くと描き直す
+check("支度メニューが下へ送られる", b("menu_cur") == 4 and b("menu_top") == 1, f"cur={b('menu_cur')} top={b('menu_top')}")
+emu.run(2, "A")             # 前掛け → なし
+emu.run(40)
+shot("03b_amulet")
 emu.run(2, "B")
 emu.run(60)
 check("献立を選ぶと力が上がる (鹿肉 +3)", b("meal") == 1 and b("p_str") == 13, f"str={b('p_str')}")
+check("護符を外すと守が戻る", b("am1") == 0 and b("p_def") == 0, f"am1={b('am1')} def={b('p_def')}")
 check("支度を終えると記録される", emu.sram is not None and bytes(emu.sram[0:2]) == b"CE" and emu.sram[16] == 1)
 check("記録のあと歩ける", skip_dialogue())
 

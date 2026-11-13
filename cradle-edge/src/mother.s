@@ -44,7 +44,7 @@ MotherCommands:
     sta m_ji
     lda #MS_HEAL
     sta m_state
-    lda #HEAL_TIME
+    lda cast_heal
     sta m_timer
     lda #SE_CAST
     jmp PlaySe
@@ -86,7 +86,7 @@ MotherCommands:
     stx m_target
     lda #MS_OVER
     sta m_state
-    lda #OVER_TIME
+    lda cast_over
     sta m_timer
     lda #SE_CAST
     jmp PlaySe
@@ -391,7 +391,7 @@ MotherDecide:
     sta m_ji
     lda #MS_HEAL
     sta m_state
-    lda #HEAL_TIME
+    lda cast_heal
     sta m_timer
     lda #180
     sta m_auto

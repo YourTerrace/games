@@ -167,6 +167,11 @@ vd_dst:      .res 2
 vd_len:      .res 2
 txt_addr:    .res 2
 txt_line:    .res 2
+gq_n:        .res 1          ; 字の絵の転送予約
+gq_src:      .res 2
+gq_dst:      .res 2
+gw0:         .res 2
+gw1:         .res 2
 cx:          .res 1
 cy:          .res 1
 om_x:        .res 2
@@ -197,6 +202,15 @@ menu_line:   .res 1
 kit:         .res 1          ; 薬箱の組み合わせ
 med:         .res 3          ; 傷薬 / 慈力水 / 気付け薬 の残り
 med_sel:     .res 1
+am_own:      .res 1          ; 持っている護符 (bit 1-7)
+am1:         .res 1          ; 身につけている護符 (0 = なし)
+am2:         .res 1
+am_on:       .res 1          ; 効いている護符 (bit)
+menu_top:    .res 1          ; 支度メニューの表示の先頭行
+ch_lv1:      .res 1          ; 溜めの段階 (護符で変わる)
+ch_lv2:      .res 1
+cast_heal:   .res 1          ; 詠唱の長さ (護符で変わる)
+cast_over:   .res 1
 
 .bss
 oam_buf:     .res 512
@@ -342,7 +356,6 @@ ResetFast:
     VRAM_DMA BgChr,     BG_CHR_SIZE,    VRAM_BG1_CHR
     VRAM_DMA FontChr,   FONT_CHR_SIZE,  VRAM_BG3_CHR
     VRAM_DMA WindowChr, 48,             VRAM_BG3_CHR + 77*8
-    VRAM_DMA GlyphChr,  GLYPH_CHR_SIZE, VRAM_BG3_CHR + GLYPH_BASE*8
     VRAM_DMA HudMap,    $0800,          VRAM_BG3_MAP
     VRAM_DMA ObjChr,    OBJ_CHR_SIZE,   VRAM_OBJ_CHR
 
@@ -567,6 +580,25 @@ NmiFast:
     stx $4305
     lda #$01
     sta $420B
+    ; 予約された字の絵 (64 バイト)
+    lda gq_n
+    beq @no_gq
+    stz gq_n
+    ldx gq_dst
+    stx $2116
+    lda #$01
+    sta $4300
+    lda #$18
+    sta $4301
+    ldx gq_src
+    stx $4302
+    lda #^GlyphChr
+    sta $4304
+    ldx #64
+    stx $4305
+    lda #$01
+    sta $420B
+@no_gq:
     ; 予約された VRAM 書き込み (文字 1 字ぶん)
     lda vq_n
     beq @no_vq
@@ -783,13 +815,13 @@ UpdatePlayer:
     and #$40
     beq @released
     lda p_charge
-    cmp #CHARGE_LV2
+    cmp ch_lv2
     bcs @move
     inc p_charge
     lda p_charge
-    cmp #CHARGE_LV1
+    cmp ch_lv1
     beq @ding
-    cmp #CHARGE_LV2
+    cmp ch_lv2
     bne @move
 @ding:
     lda #SE_JUST
@@ -798,10 +830,10 @@ UpdatePlayer:
 @released:
     lda p_charge
     stz p_charge
-    cmp #CHARGE_LV1
+    cmp ch_lv1
     bcc @move
     ldx #$0005              ; 段5 = 双牙落とし, 段6 = 地裂き
-    cmp #CHARGE_LV2
+    cmp ch_lv2
     bcc :+
     inx
 :   txa
@@ -1411,7 +1443,24 @@ StartDodge:
     sta dodge_vy
     sep #$20
 @go:
-    lda #ST_DODGE
+    lda am_on               ; 軽業の靴: 回避が 1.25 倍
+    and #AMB_SHOES
+    beq :+
+    rep #$20
+    lda dodge_vx
+    ASR16
+    ASR16
+    clc
+    adc dodge_vx
+    sta dodge_vx
+    lda dodge_vy
+    ASR16
+    ASR16
+    clc
+    adc dodge_vy
+    sta dodge_vy
+    sep #$20
+:   lda #ST_DODGE
     sta p_state
     stz p_timer
     stz p_buf
@@ -2086,7 +2135,7 @@ DrawPlayer:
 DrawSwords:
     .a8
     lda p_charge            ; 溜まったら剣が光る
-    cmp #CHARGE_LV1
+    cmp ch_lv1
     bcc @normal
     lda tick
     and #$02
@@ -2457,7 +2506,6 @@ SetChr:     .incbin "set0.chr"
             .incbin "set2.chr"
 .segment "BANK2"
 BgChr:      .incbin "bg.chr"
-GlyphChr:   .incbin "glyph.chr"
 
 .segment "BANK3"
 RoomMaps:   .incbin "rooms.bin"
@@ -2466,6 +2514,9 @@ BlankMap:   .incbin "blank.map"
 
 .segment "BANK4"
 SpcData:    .incbin "spc.bin"          ; 音源ドライバ・波形・曲 (起動時に音源へ送る)
+
+.segment "BANK5"
+GlyphChr:   .incbin "glyph.chr"        ; 字の絵 (1 字 64 バイト、使う時に VRAM へ送る)
 
 ; ---- カートリッジヘッダ -----------------------------------------------------
 .segment "HEADER"

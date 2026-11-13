@@ -463,6 +463,18 @@ EnemyAttackMove:
 HurtMother:
     .a8
     sta t0
+    lda am_on               ; 母の割烹着: 3/4 に
+    and #AMB_APRON
+    beq :+
+    lda t0
+    lsr a
+    lsr a
+    sta t1
+    lda t0
+    sec
+    sbc t1
+    sta t0
+:
     lda #$01
     sta d_atkdone,x
     lda m_inv
@@ -506,11 +518,18 @@ HurtPlayer:
 :   lda p_state
     cmp #ST_DODGE
     bne @no_dodge
-    lda p_timer
-    cmp #10                 ; 無敵は回避の最初の10F
+    lda #10                 ; 無敵は回避の最初の10F (眼帯なら 8F)
+    sta t2
+    lda am_on
+    and #AMB_PATCH
+    beq :+
+    lda #8
+    sta t2
+:   lda p_timer
+    cmp t2
     bcs @no_dodge
     sta t1
-    jsr TypeToY             ; 見切った (印3つ) 攻撃は受付 6F → 9F
+    jsr TypeToY             ; 見切った (印3つ) 攻撃は受付 6F → 9F。眼帯で +2F
     lda #6
     sta t2
     stz p_justm
@@ -520,6 +539,11 @@ HurtPlayer:
     lda #9
     sta t2
     inc p_justm
+:   lda am_on
+    and #AMB_PATCH
+    beq :+
+    inc t2
+    inc t2
 :   lda t1
     cmp t2
     bcs @out
