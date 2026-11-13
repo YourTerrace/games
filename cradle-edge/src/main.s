@@ -119,8 +119,6 @@ p_just:      .res 1          ; ジャスト回避後、返し刃を出せる残�
 just_idx:    .res 2
 dim_t:       .res 1
 dead_t:      .res 1
-wave:        .res 1
-wave_t:      .res 1
 adx:         .res 2
 ady:         .res 2
 near_idx:    .res 2
@@ -178,6 +176,8 @@ om_x:        .res 2
 om_y:        .res 2
 oe_x:        .res 2
 oe_y:        .res 2
+
+.bss
 room_exit:   .res 4          ; 上下左右の行き先 ($FF = なし)
 room_enter:  .res 1          ; 初入室時の台本 ($FF = なし)。room_exit の直後に置くこと
 room_music:  .res 1          ; 部屋の曲。room_enter の直後に置くこと
@@ -217,8 +217,6 @@ chart:       .res 5          ; 母のカルテ (敵の種別ごと、崩壊さ�
 chart_done:  .res 1          ; 完成したカルテの数
 over_amt:    .res 1          ; 過治癒 1 回で溜まる飽和
 pause_pg:    .res 1
-
-.bss
 oam_buf:     .res 512
 oam_hi:      .res 32
 oam_hi_tmp:  .res 128
