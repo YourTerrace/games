@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">SecurityCam</string>
+    <string-array name="qualities">
+        <item>SD (480p)</item>
+        <item>HD (720p)</item>
+        <item>FHD (1080p)</item>
+        <item>UHD (2160p)</item>
+    </string-array>
+</resources>
