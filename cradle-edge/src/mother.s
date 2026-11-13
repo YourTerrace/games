@@ -151,8 +151,13 @@ UpdateMother:
     rts
 @up:
     sep #$20
-    lda tick                ; 慈力は毎秒およそ2回復
-    and #$1F
+    lda meal                ; 慈力は毎秒およそ2回復 (茸飯なら倍)
+    cmp #MEAL_DEW
+    bne :+
+    lda #$0F
+    bra :++
+:   lda #$1F
+:   and tick
     bne :+
     lda m_ji
     cmp #100

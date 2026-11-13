@@ -20,7 +20,7 @@ build/rooms.inc: tools/gen_world.py
 	@mkdir -p build
 	$(PYTHON) -W ignore tools/gen_world.py build
 
-build/main.o: src/main.s src/enemy.s src/mother.s src/world.s $(GFX) build/audio.inc build/rooms.inc Makefile
+build/main.o: src/main.s src/enemy.s src/mother.s src/world.s src/prep.s $(GFX) build/audio.inc build/rooms.inc Makefile
 	ca65 -g --cpu 65816 -I build --bin-include-dir build -o $@ -l build/main.lst src/main.s
 
 $(ROM): build/main.o lorom.cfg tools/fix_checksum.py
@@ -28,7 +28,7 @@ $(ROM): build/main.o lorom.cfg tools/fix_checksum.py
 	$(PYTHON) tools/fix_checksum.py $@
 
 test: $(ROM)
-	$(PYTHON) tests/test_m3.py $(ROM)
+	$(PYTHON) tests/test_game.py $(ROM)
 
 dist: $(ROM)
 	@mkdir -p dist

@@ -225,6 +225,16 @@ def sign(v):
     return draw_b(f)
 
 
+def chest(v):
+    def f(d, im):
+        d.rectangle([1, 5, 14, 14], fill=3)
+        d.rectangle([2, 6, 13, 13], fill=1)
+        d.rectangle([2, 6, 13, 8], fill=2)
+        d.line([(2, 9), (13, 9)], fill=3)
+        d.rectangle([7, 8, 8, 11], fill=11)
+    return draw_b(f)
+
+
 def mill(v):
     def f(d, im):
         d.rectangle([0, 0, 15, 15], fill=2)
@@ -244,6 +254,7 @@ LEGEND = {
     "~": (water, 1, True), "R": (roof, 1, True), "H": (wall, 1, True),
     "w": (lambda v: wall(1), 1, True), "D": (lambda v: wall(2), 1, True),
     "F": (fence, 1, True), "C": (fire, 1, True), "S": (sign, 1, True), "M": (mill, 3, True),
+    "T": (chest, 1, True),
 }
 
 # ---------------------------------------------------------------- 台本
@@ -295,7 +306,36 @@ SCRIPTS = {
 満ちれば敵は崩壊！""",
     "FIRE": """焚き火で休んだ。
 体力がもどった。
-（記録しました）""",
+支度をととのえよう。""",
+    "CHEST": """箱の中に
+大剣「苔断ち」が
+入っていた！
+
+苔断ち　攻１６　重さ４
+繁るものに強い。
+焚き火で持ちかえよう。""",
+    "EMPTY": """からっぽだ。""",
+    "SIGN3": """＜立て札＞
+見切り印
+ひきつけてよけるたび
+敵ごとに印がつく
+
+印３つで
+その敵は見切った。
+よけやすくなる""",
+    "M_L0": """暁手　""",
+    "M_L1": """宵手　""",
+    "M_L2": """献立　""",
+    "M_L3": """支度を終える""",
+    "SW0": """鉄塊・暁　攻１２""",
+    "SW1": """鉄塊・宵　攻１０""",
+    "SW2": """苔断ち　　攻１６""",
+    "SW3": """水車鉄軸　攻２２""",
+    "MEAL0": """なし　　　　　　""",
+    "MEAL1": """鹿肉　　　力＋３""",
+    "MEAL2": """根菜煮　　守＋３""",
+    "MEAL3": """茸飯　慈力回復倍""",
+    "GLYPHS": """▶　""",
     "BOSS_IN": """ミレイユ
 「……じいさん？」
 
@@ -308,6 +348,9 @@ SCRIPTS = {
 
 ミレイユ
 「……あとで話すわ」
+
+水車の鉄軸を
+手に入れた。
 
 序章　雨漏り　完
 
@@ -359,6 +402,8 @@ L = ["; 自動生成 (tools/gen_world.py)", f"GLYPH_BASE = {GLYPH_BASE}",
      f"GLYPH_CHR_SIZE = {len(glyph_chr)}"]
 for i, name in enumerate(SCRIPT_ORDER):
     L.append(f"SCR_{name} = {i}")
+L.append(f"GL_CURSOR = {glyphs.index('▶')}")
+L.append(f"GL_SPACE = {glyphs.index('　')}")
 L.append("script_tbl: .word " + ", ".join(f".loword(scr_{n})" for n in SCRIPT_ORDER))
 for name in SCRIPT_ORDER:
     b = script_bytes[name]
@@ -391,7 +436,7 @@ open(f"{OUT}/window.chr", "wb").write(win_chr)
 
 # ---------------------------------------------------------------- 部屋
 T_RAT, T_SNAKE, T_SCARE, T_BOSS = 1, 2, 3, 4
-O_ENEMY, O_NPC, O_TALK, O_FIRE = 1, 2, 3, 4
+O_ENEMY, O_NPC, O_TALK, O_FIRE, O_CHEST = 1, 2, 3, 4, 5
 SET_VILLAGE, SET_FIELD, SET_BOSS = 0, 1, 2
 NONE = 0xFF
 
@@ -440,13 +485,14 @@ ROOMS = [
 #~.....,,..X...#
 #......,,......#
 #..X...,,......#
-#......,,...b..#
-#b.....,,......#
+#T.....,,...b..#
+#b.....,,..S...#
 ##.....,,.....##
 #######,,#######
 #######,,#######""", objs=[
         (O_ENEMY, 128, 56, T_SNAKE, None), (O_ENEMY, 88, 104, T_RAT, None),
-        (O_ENEMY, 200, 120, T_RAT, None), (O_ENEMY, 216, 56, T_SNAKE, None)]),
+        (O_ENEMY, 200, 120, T_RAT, None), (O_ENEMY, 216, 56, T_SNAKE, None),
+        (O_CHEST, 24, 152, 2, "CHEST"), (O_TALK, 184, 168, 0, "SIGN3")]),
     dict(name="hill2", set=SET_FIELD, up=4, down=2, map="""
 ################
 #######,,#######
@@ -493,7 +539,7 @@ def add_tile(px, pal):
 
 
 R = ["; 自動生成 (tools/gen_world.py)", f"NUM_ROOMS = {len(ROOMS)}",
-     f"O_ENEMY = {O_ENEMY}", f"O_NPC = {O_NPC}", f"O_TALK = {O_TALK}", f"O_FIRE = {O_FIRE}",
+     f"O_ENEMY = {O_ENEMY}", f"O_NPC = {O_NPC}", f"O_TALK = {O_TALK}", f"O_FIRE = {O_FIRE}", f"O_CHEST = {O_CHEST}",
      f"TYPE_BOSS = {T_BOSS}", f"BOSS_ROOM = {len(ROOMS) - 1}",
      f"START_X = {ROOMS[0]['start'][0]}", f"START_Y = {ROOMS[0]['start'][1]}",
      "room_tbl: .word " + ", ".join(f".loword(room_{r['name']})" for r in ROOMS)]

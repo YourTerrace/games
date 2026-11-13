@@ -478,16 +478,37 @@ HurtPlayer:
     lda #$01
     sta d_atkdone,x
     lda dead_t
-    bne @out
-    lda p_state
+    beq :+
+    rts
+:   lda p_state
     cmp #ST_DODGE
     bne @no_dodge
     lda p_timer
     cmp #10                 ; 無敵は回避の最初の10F
     bcs @no_dodge
-    cmp #6                  ; そのうち最初の6Fで受ければジャスト回避
+    sta t1
+    jsr TypeToY             ; 見切った (印3つ) 攻撃は受付 6F → 9F
+    lda #6
+    sta t2
+    stz p_justm
+    lda marks,y
+    cmp #MARK_MAX
+    bcc :+
+    lda #9
+    sta t2
+    inc p_justm
+:   lda t1
+    cmp t2
     bcs @out
-    lda #50
+    lda marks,y             ; 見切り印を 1 つ
+    cmp #MARK_MAX
+    bcs :+
+    inc a
+    sta marks,y
+    phx
+    jsr RecalcStats
+    plx
+:   lda #50
     sta p_just
     stx just_idx
     lda #10
@@ -499,6 +520,13 @@ HurtPlayer:
 @no_dodge:
     lda p_inv
     bne @out
+    lda t0                  ; 守の分だけ軽く (最低 1)
+    sec
+    sbc p_def
+    beq :+
+    bcs :++
+:   lda #1
+:   sta t0
     rep #$20
     lda p_hp
     sec

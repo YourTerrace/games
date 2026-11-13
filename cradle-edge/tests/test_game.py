@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
-"""M3 自動テスト: タイトル → 会話 → 焚き火で記録 → 部屋移動 → 戦闘 → ボス → 結末 → つづきから。
+"""通しの自動テスト: タイトル → 会話 → 焚き火の支度と記録 → 部屋移動 → 戦闘 → 箱 → ボス → 結末 → つづきから。
 
 戦闘の細部 (ジャスト回避・崩壊など) も合わせて確かめる。道中は時間短縮のため、
 テスト側で主人公の HP を書き戻したりボスの HP を減らしたりしている。
 
-  python3 tests/test_m3.py build/cradle-edge.sfc [--shots DIR] [--core bsnes]
+  python3 tests/test_game.py build/cradle-edge.sfc [--shots DIR] [--core bsnes]
 """
 import os
 import sys
@@ -114,10 +114,22 @@ walk_to(216, 136)
 emu.run(4, "UP")
 fire_pos = pos()
 emu.run(2, "Y")
+emu.run(80)
+emu.run(2, "A")             # 焚き火の会話を閉じると支度メニュー
+emu.run(120)
+check("焚き火で支度メニューが開く", b("menu_cur") == 0 and pos() == fire_pos)
+emu.run(2, "DOWN")
+emu.run(10)
+emu.run(2, "DOWN")
+emu.run(10)
+emu.run(2, "A")             # 献立: なし → 鹿肉
+emu.run(40)
+shot("03_prep")
+emu.run(2, "B")
 emu.run(60)
-shot("03_campfire")
-check("焚き火で記録される", emu.sram is not None and bytes(emu.sram[0:2]) == b"CE")
-check("焚き火の会話を閉じられる", skip_dialogue())
+check("献立を選ぶと力が上がる (鹿肉 +3)", b("meal") == 1 and b("p_str") == 13, f"str={b('p_str')}")
+check("支度を終えると記録される", emu.sram is not None and bytes(emu.sram[0:2]) == b"CE" and emu.sram[16] == 1)
+check("記録のあと歩ける", skip_dialogue())
 
 # 村人と話す
 walk_to(200, 112)
@@ -158,6 +170,7 @@ for _ in range(900):
     if b("p_just"):
         break
 check("引きつけて回避するとジャスト回避", b("p_just") > 0 and w("p_hp") == hp0)
+check("ジャスト回避で見切り印がつく", b("marks", 1) == 1, f"marks={[b('marks', i) for i in range(5)]}")
 emu.run(2, "Y")
 emu.run(10)
 check("直後の Y が返し刃になる", b("p_stage") == 4)
@@ -186,6 +199,18 @@ def rush_up(target_room):
 
 walk_to(128, pos()[1])
 check("裏山 1 へ", rush_up(2))
+# 箱から苔断ち
+for _ in range(300):
+    poke_w("p_hp", 100)
+    r[sym["p_inv"]] = 30
+    if walk_to(40, 152, 1):
+        break
+emu.run(4, "LEFT")
+emu.run(2, "Y")
+emu.run(60)
+check("箱から苔断ちを手に入れる", b("own") & 4, f"own={b('own')}")
+shot("05b_chest")
+skip_dialogue()
 emu.audio_peak()
 # 過治癒 → 崩壊
 collapsed = False

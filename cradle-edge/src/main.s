@@ -170,6 +170,17 @@ chk_x:       .res 1
 chk_y:       .res 1
 title_sel:   .res 1
 title_has:   .res 1
+eqA:         .res 1          ; 暁手の剣
+eqB:         .res 1          ; 宵手の剣
+meal:        .res 1
+own:         .res 1          ; 持っている剣 (bit)
+marks:       .res 5          ; 見切り印 (敵の種別ごと)
+p_str:       .res 1
+p_def:       .res 1
+p_justm:     .res 1          ; 見切った攻撃をジャスト回避した
+sp_mask:     .res 1          ; 繁り特効の手
+menu_cur:    .res 1
+menu_line:   .res 1
 
 .bss
 oam_buf:     .res 512
@@ -211,6 +222,10 @@ it_y:        .res 8
 it_a:        .res 8
 it_b:        .res 8
 seen:        .res 8
+r_power:     .res 8          ; 装備から作った連斬の性能表
+r_startup:   .res 8
+r_actend:    .res 8
+r_total:     .res 8
 
 ; ---- マクロ -----------------------------------------------------------------
 .macro VRAM_DMA src, len, dest
@@ -579,6 +594,7 @@ IrqStub:
 ; 最後の焚き火 (chk_*) から再開する。状態を戻して部屋を読み直す
 InitGame:
     .a8
+    jsr RecalcStats
     rep #$20
     lda #HP_MAX
     sta p_hp
@@ -946,7 +962,7 @@ PlayerAttack:
     sta p_buf
 :   jsr StageToX
     lda p_timer
-    cmp atk_startup,x
+    cmp r_startup,x
     bcs @no_lunge
     ; 踏み込み
     rep #$20
@@ -964,16 +980,16 @@ PlayerAttack:
     jsr CalcSwingSwords
     jsr StageToX
     lda p_timer
-    cmp atk_startup,x
+    cmp r_startup,x
     bcc @no_hit
-    cmp atk_actend,x
+    cmp r_actend,x
     bcs @no_hit
     jsr AttackHit
 @no_hit:
     inc p_timer
     jsr StageToX
     lda p_timer
-    cmp atk_total,x
+    cmp r_total,x
     bcc @done
     lda p_buf
     beq @end
@@ -1010,7 +1026,7 @@ CalcSwingSwords:
     ; t0 = clamp(timer - startup, 0, 6)
     lda p_timer
     sec
-    sbc atk_startup,x
+    sbc r_startup,x
     bcs :+
     lda #$00
 :   cmp #6
@@ -1051,7 +1067,7 @@ CalcSwingSwords:
     cpx #$0002
     bne @done
     lda p_timer
-    cmp atk_startup,x
+    cmp r_startup,x
     bcs @slam
     lda t1
     clc
@@ -1153,7 +1169,7 @@ ApplyHit:
     txy                     ; Y = 段
     plx
     ; ダメージ = 攻撃力 × 倍率 ÷ 16 − 守÷2 + 乱数(0-3)
-    lda atk_power,y
+    lda r_power,y
     sta $4202
     lda atk_mult,y
     sta $4203
@@ -1187,7 +1203,20 @@ ApplyHit:
     adc t3
     sta t3
 :   sep #$20
-    lda d_col,x             ; 崩壊中の敵には2倍
+    lda stage_hand,y        ; 繁り特効 ×1.5 (へび・案山子・水車番)
+    and sp_mask
+    beq @no_sp
+    lda d_type,x
+    cmp #TYPE_SNAKE
+    bcc @no_sp
+    jsr Boost150
+@no_sp:
+    cpy #$0004              ; 見切った攻撃への返し刃 ×1.5
+    bne :+
+    lda p_justm
+    beq :+
+    jsr Boost150
+:   lda d_col,x             ; 崩壊中の敵には2倍
     rep #$20
     beq :+
     asl t3
@@ -1291,6 +1320,18 @@ ApplyHit:
     inc combo
 :   lda #120
     sta combo_t
+    rts
+
+; t3 (16bit) を 1.5 倍に
+Boost150:
+    .a8
+    rep #$20
+    lda t3
+    lsr a
+    clc
+    adc t3
+    sta t3
+    sep #$20
     rts
 
 ; ---- 回避ステップ -----------------------------------------------------------
@@ -2173,6 +2214,7 @@ DrawFx:
 .include "enemy.s"
 .include "mother.s"
 .include "world.s"
+.include "prep.s"
 
 ; ---- HUD --------------------------------------------------------------------
 ; combo (2桁) と last_dmg (3桁) をタイル番号に (タイル1 = '0')

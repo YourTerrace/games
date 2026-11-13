@@ -511,7 +511,24 @@ TryInteract:
     lda it_kind,x
     cmp #O_FIRE
     beq @fire
+    cmp #O_CHEST
+    bne @talk
+    ldy it_a,x              ; 箱: 剣が入っていれば手に入れる
+    lda own
+    and bit_tbl,y
+    bne @empty
+    lda own
+    ora bit_tbl,y
+    sta own
+    lda #SE_JUST
+    jsr PlaySe
+@talk:
     lda it_b,x
+    jsr ShowScript
+    sec
+    rts
+@empty:
+    lda #SCR_EMPTY
     jsr ShowScript
     sec
     rts
@@ -534,12 +551,13 @@ TryInteract:
     sta chk_x
     lda p_y+1
     sta chk_y
-    jsr SaveGame
     lda #SE_HEAL
     jsr PlaySe
     jsr BuildHud
     pla
     jsr ShowScript
+    jsr PrepMenu
+    jsr SaveGame
     lda room
     jsr ChangeRoom
     sec
@@ -707,7 +725,8 @@ DrawLine:
     rts
 
 ; ---- セーブ (バッテリーバックアップ) ----------------------------------------
-;  +0 'C' +1 'E' +2 部屋 +3 X +4 Y +5 ボス撃破 +6..13 入室済み +14 検査用の和
+;  +0 'C' +1 'E' +2 部屋 +3 X +4 Y +5 ボス撃破 +6..13 入室済み
+;  +14 暁手 +15 宵手 +16 献立 +17 持っている剣 +18..21 見切り印(種別1-4) +22 検査用の和
 SaveGame:
     .a8
     lda #'C'
@@ -729,8 +748,23 @@ SaveGame:
     inx
     cpx #$0008
     bne @seen
-    jsr SaveSum
+    lda eqA
     sta f:SRAM+14
+    lda eqB
+    sta f:SRAM+15
+    lda meal
+    sta f:SRAM+16
+    lda own
+    sta f:SRAM+17
+    ldx #$0000
+@mk:
+    lda marks+1,x
+    sta f:SRAM+18,x
+    inx
+    cpx #$0004
+    bne @mk
+    jsr SaveSum
+    sta f:SRAM+22
     rts
 
 SaveSum:
@@ -741,7 +775,7 @@ SaveSum:
     clc
     adc f:SRAM+2,x
     inx
-    cpx #12
+    cpx #20
     bne @loop
     rts
 
@@ -755,7 +789,7 @@ HasSave:
     cmp #'E'
     bne @no
     jsr SaveSum
-    cmp f:SRAM+14
+    cmp f:SRAM+22
     bne @no
     sec
     rts
@@ -780,11 +814,39 @@ LoadGame:
     inx
     cpx #$0008
     bne @seen
+    lda f:SRAM+14
+    sta eqA
+    lda f:SRAM+15
+    sta eqB
+    lda f:SRAM+16
+    sta meal
+    lda f:SRAM+17
+    sta own
+    stz marks
+    ldx #$0000
+@mk:
+    lda f:SRAM+18,x
+    sta marks+1,x
+    inx
+    cpx #$0004
+    bne @mk
     rts
 
 NewGame:
     .a8
     stz boss_dead
+    stz eqA
+    lda #1
+    sta eqB
+    stz meal
+    lda #%0011
+    sta own
+    ldx #$0000
+@mk:
+    stz marks,x
+    inx
+    cpx #$0005
+    bne @mk
     ldx #$0000
 @seen:
     stz seen,x
@@ -921,6 +983,9 @@ BossDefeated:
     stz ev_boss
     lda #$01
     sta boss_dead
+    lda own                 ; 水車の鉄軸
+    ora #%1000
+    sta own
     ldx #$0000
 @kill:
     stz d_type,x
