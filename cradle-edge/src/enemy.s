@@ -80,8 +80,15 @@ SpawnEnemy:
 ; X = 敵 → t1 = 主人公X − 敵X, t2 = 同Y (符号付き16bit)、adx/ady = 絶対値
 EnemyDelta:
     .a8
-    rep #$20
     lda p_x+1
+    sta tpx
+    lda p_y+1
+    sta tpy
+; 同じく、tpx/tpy に入っている位置との差
+EnemyDeltaT:
+    .a8
+    rep #$20
+    lda tpx
     and #$00FF
     sta t1
     lda d_x+1,x
@@ -95,7 +102,7 @@ EnemyDelta:
     eor #$FFFF
     inc a
 :   sta adx
-    lda p_y+1
+    lda tpy
     and #$00FF
     sta t2
     lda d_y+1,x
@@ -131,7 +138,7 @@ UpdateEnemies:
     beq :+
     dec d_stun,x
     jmp @next
-:   jsr EnemyDelta
+:   jsr EnemyTarget
     lda d_state,x
     beq @approach
     cmp #ES_WINDUP
@@ -171,6 +178,29 @@ UpdateEnemies:
     beq :+
     jmp @loop
 :   rts
+
+; 狙う相手を決めて差分を出す。詠唱中の母は全員に狙われ、蔓へびは常に母を狙う
+EnemyTarget:
+    .a8
+    stz d_tgt,x
+    lda m_down
+    ora m_down+1
+    bne @player
+    lda m_state
+    bne @mom
+    lda d_type,x
+    cmp #TYPE_SNAKE
+    bne @player
+@mom:
+    lda #$01
+    sta d_tgt,x
+    lda m_x+1
+    sta tpx
+    lda m_y+1
+    sta tpy
+    jmp EnemyDeltaT
+@player:
+    jmp EnemyDelta
 
 ; 飽和の自然減衰と、繁り属性の再生
 EnemyRegen:
@@ -367,18 +397,71 @@ EnemyAttackMove:
     jsr EnemyDelta
     jsr TypeToY
     lda adx+1
+    ora ady+1
+    bne @mom
+    lda adx
+    cmp e_hitw,y
+    bcs @mom
+    lda ady
+    cmp e_hith,y
+    bcs @mom
+    lda e_atk,y
+    jmp HurtPlayer
+@mom:
+    lda m_down
+    ora m_down+1
+    bne @done
+    lda m_x+1
+    sta tpx
+    lda m_y+1
+    sta tpy
+    jsr EnemyDeltaT
+    lda adx+1
+    ora ady+1
     bne @done
     lda adx
     cmp e_hitw,y
     bcs @done
-    lda ady+1
-    bne @done
     lda ady
     cmp e_hith,y
     bcs @done
     lda e_atk,y
-    jmp HurtPlayer
+    jmp HurtMother
 @done:
+    rts
+
+; A = ダメージ, X = 当ててきた敵。詠唱は中断され、HP が尽きるとひざをつく
+HurtMother:
+    .a8
+    sta t0
+    lda #$01
+    sta d_atkdone,x
+    lda m_inv
+    bne @out
+    stz m_state
+    lda #60
+    sta m_inv
+    lda #4
+    sta hitstop
+    lda m_hp
+    sec
+    sbc t0
+    beq @down
+    bcs @ok
+@down:
+    stz m_hp
+    stz m_rev
+    rep #$20
+    lda #900                ; 15 秒で自力復帰
+    sta m_down
+    sep #$20
+    lda #SE_COLLAPSE
+    jmp PlaySe
+@ok:
+    sta m_hp
+    lda #SE_HURT
+    jmp PlaySe
+@out:
     rts
 
 ; A = ダメージ, X = 当ててきた敵
@@ -436,6 +519,7 @@ HurtPlayer:
     lda #ST_HURT
     sta p_state
     stz p_timer
+    stz p_charge
     lda #60
     sta p_inv
     lda #5

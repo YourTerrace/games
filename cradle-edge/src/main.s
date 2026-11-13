@@ -39,6 +39,11 @@ SE_COLLAPSE = 8
 SE_DENY     = 9
 SE_DODGE    = 10
 
+CHARGE_SHOW = 10            ; これ以上で構えが変わり、歩きが遅くなる
+CHARGE_LV1  = 36            ; 0.6 秒: 双牙落とし
+CHARGE_LV2  = 84            ; 1.4 秒: 地裂き
+MOM_HP_MAX  = 70
+
 PAL_HERO    = 0 << 1
 PAL_SWORD_A = 2 << 1
 PAL_SWORD_B = 3 << 1
@@ -130,6 +135,14 @@ m_timer:     .res 1
 m_anim:      .res 1
 m_ji:        .res 1          ; 慈力
 m_target:    .res 2
+m_hp:        .res 1
+m_inv:       .res 1
+m_rev:       .res 1          ; 助け起こしの進み具合
+m_down:      .res 2          ; ひざをついている残り時間
+p_charge:    .res 1          ; 溜め
+tpx:         .res 1          ; 敵が狙っている位置
+tpy:         .res 1
+bar_th:      .res 1
 
 .bss
 oam_buf:     .res 512
@@ -162,6 +175,7 @@ d_col:       .res DUMMY_END
 d_atkdone:   .res DUMMY_END
 d_noregen:   .res DUMMY_END
 d_flip:      .res DUMMY_END
+d_tgt:       .res DUMMY_END
 hud_buf:     .res 128
 
 ; ---- マクロ -----------------------------------------------------------------
@@ -515,6 +529,13 @@ InitGame:
     stz m_state
     stz combo
     stz hitstop
+    stz p_charge
+    stz m_inv
+    stz m_rev
+    stz m_down
+    stz m_down+1
+    lda #MOM_HP_MAX
+    sta m_hp
     lda #60
     sta wave_t
     lda #100
@@ -626,22 +647,86 @@ UpdatePlayer:
     lda pad_new+1
     and #$40                ; Y
     beq :+
+    stz p_charge
     jmp StartAttack
 :   lda pad_new+1
     bpl :+                  ; B
+    stz p_charge
     jmp StartDodge
-:   lda pad+1
+:   lda pad+1               ; Y を押し続けると溜め、離すと溜め斬り
+    and #$40
+    beq @released
+    lda p_charge
+    cmp #CHARGE_LV2
+    bcs @move
+    inc p_charge
+    lda p_charge
+    cmp #CHARGE_LV1
+    beq @ding
+    cmp #CHARGE_LV2
+    bne @move
+@ding:
+    lda #SE_JUST
+    jsr PlaySe
+    bra @move
+@released:
+    lda p_charge
+    stz p_charge
+    cmp #CHARGE_LV1
+    bcc @move
+    ldx #$0005              ; 段5 = 双牙落とし, 段6 = 地裂き
+    cmp #CHARGE_LV2
+    bcc :+
+    inx
+:   txa
+    sta p_stage
+    lda #ST_ATTACK
+    sta p_state
+    stz p_timer
+    stz p_buf
+    stz p_anim
+    inc swing_id
+    lda #SE_SLASH
+    jsr PlaySe
+    jmp PlayerAttack
+@move:
+    lda pad+1
     and #$0F
     beq @idle
     jsr SetFacingFromPad
     jsr LoadPadVelocity
-    jsr MovePlayer
+    lda p_charge            ; 溜め中は歩きが半分
+    cmp #CHARGE_SHOW
+    bcc :+
+    rep #$20
+    lda vx
+    ASR16
+    sta vx
+    lda vy
+    ASR16
+    sta vy
+    sep #$20
+:   jsr MovePlayer
     inc p_anim
     bra @rest
 @idle:
     stz p_anim
 @rest:
-    jmp SetRestSwords
+    jsr SetRestSwords
+    lda p_charge            ; 溜め中は2本とも背中側へ振りかぶる
+    cmp #CHARGE_SHOW
+    bcc :+
+    lda swA_ang
+    clc
+    adc #2
+    and #$0F
+    sta swA_ang
+    lda swB_ang
+    sec
+    sbc #2
+    and #$0F
+    sta swB_ang
+:   rts
 
 ; 十字キーの状態から vx, vy を引く
 LoadPadVelocity:
@@ -1373,6 +1458,11 @@ BumpDummies:
     beq @nj
     phx
     phy
+    jsr SeparatePair
+    ply
+    plx
+    phx
+    phy
     jsr BumpPair
     ply
     plx
@@ -1387,7 +1477,55 @@ BumpDummies:
     bcc @i
     rts
 
-; X, Y = 木人の添字
+; X, Y = 敵。ほぼ同じ場所に重なっていたら左右に少しずつ押し分ける
+SeparatePair:
+    .a8
+    lda d_dead,x
+    ora d_dead,y
+    bne @out
+    lda d_x+1,x
+    sec
+    sbc d_x+1,y
+    bcs :+
+    eor #$FF
+    inc a
+:   cmp #12
+    bcs @out
+    lda d_y+1,x
+    sec
+    sbc d_y+1,y
+    bcs :+
+    eor #$FF
+    inc a
+:   cmp #10
+    bcs @out
+    rep #$20
+    lda d_x,x
+    cmp d_x,y
+    bcc @x_left
+    clc
+    adc #$00A0
+    sta d_x,x
+    lda d_x,y
+    sec
+    sbc #$00A0
+    sta d_x,y
+    sep #$20
+    rts
+@x_left:
+    .a16
+    sec
+    sbc #$00A0
+    sta d_x,x
+    lda d_x,y
+    clc
+    adc #$00A0
+    sta d_x,y
+    sep #$20
+@out:
+    rts
+
+; X, Y = 敵の添字
 BumpPair:
     stx bi
     sty bj
@@ -1816,6 +1954,22 @@ DrawPlayer:
 
 ; 剣2本 (＋振っている最中は残像)
 DrawSwords:
+    .a8
+    lda p_charge            ; 溜まったら剣が光る
+    cmp #CHARGE_LV1
+    bcc @normal
+    lda tick
+    and #$02
+    beq @normal
+    lda swA_ang
+    ldx #PAL_FLASH | PRIO
+    ldy swA_rad
+    jsr DrawSword
+    lda swB_ang
+    ldx #PAL_FLASH | PRIO
+    ldy swB_rad
+    jmp DrawSword
+@normal:
     lda swA_ang
     ldx #PAL_SWORD_A | PRIO
     ldy swA_rad
@@ -1976,17 +2130,26 @@ DrawFx:
 ; combo (2桁) と last_dmg (3桁) をタイル番号に (タイル1 = '0')
 BuildHud:
     .a8
-    rep #$20                ; HP: 10 マス + 過剰生命 5 マス (金)
+    lda #10                 ; HP: 10 マス + 過剰生命 5 マス (金)
+    sta bar_th
+    rep #$20
     lda p_hp
     sta t1
     sep #$20
-    ldx #6*2
+    ldx #5*2
     lda #15
     jsr DrawBar
-    lda m_ji                ; 慈力: 10 マス
+    lda m_hp                ; 母の HP: 7 マス
     sta t1
     stz t1+1
-    ldx #64 + 6*2
+    ldx #64 + 5*2
+    lda #7
+    jsr DrawBar
+    stz bar_th              ; 慈力: 10 マス (金)
+    lda m_ji
+    sta t1
+    stz t1+1
+    ldx #64 + 13*2
     lda #10
     jsr DrawBar
     lda combo
@@ -2029,6 +2192,7 @@ BuildHud:
     rts
 
 ; t1 = 値, X = hud_buf 内の位置, A = マス数 (1マス = 10)
+; bar_th 番目以降のマスは金色。bar_th = 0 なら全体が金色のゲージ
 DrawBar:
     .a8
     sta t2
@@ -2049,14 +2213,23 @@ DrawBar:
     ldx t0
     lda bar_level,x
     plx
-    cpy #10
+    sta t3
+    tya
+    cmp bar_th
     bcc @white
-    cmp #0                  ; 11マス目以降は中身がある時だけ金色で出す
-    beq @put
+    lda t3
+    bne @gold
+    lda bar_th              ; 過剰生命の区間は、空なら何も出さない
+    beq @gold
+    lda #0
+    bra @put
+@gold:
+    lda t3
     clc
     adc #BAR_TILE+9
     bra @put
 @white:
+    lda t3
     clc
     adc #BAR_TILE
 @put:
@@ -2111,18 +2284,18 @@ back_vy:    .word $10000-BACK, BACK, 0, 0
 walk_cycle: .byte 1, 0, 2, 0
 
 ; 連斬 4 段 (重さ「標準」)
-; 5番目は返し刃
-atk_startup: .byte 8, 8, 9, 11, 4
-atk_actend:  .byte 14, 14, 15, 17, 10
-atk_total:   .byte 22, 22, 25, 33, 26
-atk_power:   .byte 22, 20, 22, 32, 20      ; 力10 + 暁12 / 宵10 / 暁 / 両方
-atk_mult:    .byte 16, 16, 22, 36, 72        ; 返し刃 = 48 × 会心1.5
-atk_hitstop: .byte 3, 3, 4, 8, 10
-kb_power:    .word $0100, $0100, $0180, $0700, $0600   ; 1-3段は間合いに残し、4段目で飛ばす
-sA_start:    .byte 3, <-3, 0, 4, 5
-sA_step:     .byte $FF, 0, 0, $FF, 0
-sB_start:    .byte <-5, <-3, 3, <-4, <-4
-sB_step:     .byte 0, 1, 0, 1, 1
+; 段4 = 返し刃, 段5 = 双牙落とし, 段6 = 地裂き
+atk_startup: .byte 8, 8, 9, 11, 4, 6, 8
+atk_actend:  .byte 14, 14, 15, 17, 10, 12, 14
+atk_total:   .byte 22, 22, 25, 33, 26, 34, 40
+atk_power:   .byte 22, 20, 22, 32, 20, 32, 32      ; 力10 + 暁12 / 宵10 / 暁 / 両方
+atk_mult:    .byte 16, 16, 22, 36, 72, 40, 56 ; 返し刃 = 48 × 会心1.5 / 溜め1 / 溜め2
+atk_hitstop: .byte 3, 3, 4, 8, 10, 10, 14
+kb_power:    .word $0100, $0100, $0180, $0700, $0600, $0700, $0900   ; 1-3段は間合いに残し、4段目で飛ばす
+sA_start:    .byte 3, <-3, 0, 4, 5, 7, 7
+sA_step:     .byte $FF, 0, 0, $FF, 0, $FF, $FF
+sB_start:    .byte <-5, <-3, 3, <-4, <-4, <-7, <-7
+sB_step:     .byte 0, 1, 0, 1, 1, 1, 1
 
 ; 攻撃判定の矩形 (主人公の足元からの相対、向き別)
 hit_xmin:   .word $10000-30, $10000-30, $10000-42, $10000-6

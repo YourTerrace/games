@@ -18,7 +18,11 @@ COLLAPSE_TIME = 180
 ; A / X の合図を受ける (主人公の状態に関係なく出せる)
 MotherCommands:
     .a8
-    lda m_state
+    lda m_down
+    ora m_down+1
+    beq :+
+    rts
+:   lda m_state
     bne @out
     lda dead_t
     bne @out
@@ -101,6 +105,52 @@ FindNearest:
 
 UpdateMother:
     .a8
+    lda m_inv
+    beq :+
+    dec m_inv
+:   rep #$20
+    lda m_down
+    beq @up
+    dec m_down
+    sep #$20
+    bne @still
+@revive:
+    stz m_down
+    stz m_down+1
+    lda #MOM_HP_MAX*3/10
+    sta m_hp
+    lda #SE_HEAL
+    jmp PlaySe
+@still:
+    ; そばで A を押し続けると 1.5 秒で助け起こせる
+    lda pad
+    bpl @no_rev
+    lda p_x+1
+    sec
+    sbc m_x+1
+    bcs :+
+    eor #$FF
+    inc a
+:   cmp #24
+    bcs @no_rev
+    lda p_y+1
+    sec
+    sbc m_y+1
+    bcs :+
+    eor #$FF
+    inc a
+:   cmp #20
+    bcs @no_rev
+    inc m_rev
+    lda m_rev
+    cmp #90
+    bcs @revive
+    rts
+@no_rev:
+    stz m_rev
+    rts
+@up:
+    sep #$20
     lda tick                ; 慈力は毎秒およそ2回復
     and #$1F
     bne :+
@@ -249,6 +299,13 @@ MotherHeal:
     bcs @burn
     sta p_hp
     sep #$20
+    lda m_hp                ; 母自身も少し回復
+    clc
+    adc #20
+    cmp #MOM_HP_MAX
+    bcc :+
+    lda #MOM_HP_MAX
+:   sta m_hp
     lda #PAL_HEAL
     sta fx_p
     jsr SpawnFx
@@ -349,6 +406,31 @@ MotherOverdrive:
 
 DrawMother:
     .a8
+    lda m_inv               ; 被弾直後は点滅
+    and #$02
+    beq :+
+    rts
+:   lda #(PAL_MOM | PRIO)
+    sta t3
+    lda m_down
+    ora m_down+1
+    beq @standing
+    ; ひざをつく (仮: 正面の立ち絵を低く描き、ゆっくり明滅)
+    lda tick
+    and #$10
+    beq :+
+    lda #(PAL_FLASH | PRIO)
+    sta t3
+:   lda mom_frame_tbl
+    sta spr_tile
+    lda mom_frame_tbl+1
+    ora t3
+    sta spr_attr
+    lda #$02
+    sta spr_size
+    SPR_AT m_x, m_y, -16, -20
+    jmp AddSprite
+@standing:
     lda m_state
     beq @walk
     lda mom_cast_frame
@@ -376,7 +458,7 @@ DrawMother:
     sta spr_tile
     lda mom_frame_tbl+1,x
 @attr:
-    ora #(PAL_MOM | PRIO)
+    ora t3
     sta spr_attr
     lda #$02
     sta spr_size
