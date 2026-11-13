@@ -32,7 +32,7 @@ test: $(ROM)
 
 dist: $(ROM)
 	@mkdir -p dist
-	cp $(ROM) dist/cradle-edge-m4.sfc
+	cp $(ROM) dist/cradle-edge.sfc
 
 clean:
 	rm -rf build

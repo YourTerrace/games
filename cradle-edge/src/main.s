@@ -172,6 +172,10 @@ gw0:         .res 2
 gw1:         .res 2
 cx:          .res 1
 cy:          .res 1
+pb_l:        .res 1          ; 主人公の当たりの四隅
+pb_r:        .res 1
+pb_t:        .res 1
+pb_b:        .res 1
 om_x:        .res 2
 om_y:        .res 2
 oe_x:        .res 2
@@ -1714,28 +1718,36 @@ SeparatePair:
     rep #$20
     lda d_x,x
     cmp d_x,y
-    bcc @x_left
-    clc
-    adc #$00A0
-    sta d_x,x
-    lda d_x,y
-    sec
-    sbc #$00A0
-    sta d_x,y
+    lda #$00A0              ; X は右へ、Y は左へ (逆なら符号を反転)
+    bcs :+
+    lda #$10000-$00A0
+:   sta bi
     sep #$20
-    rts
-@x_left:
-    .a16
+    jsr NudgeX
+    phx
+    tyx
+    rep #$20
+    lda #$0000
     sec
-    sbc #$00A0
-    sta d_x,x
-    lda d_x,y
-    clc
-    adc #$00A0
-    sta d_x,y
+    sbc bi
+    sta bi
     sep #$20
+    jsr NudgeX
+    plx
 @out:
     rts
+
+; X = 敵, bi = 横にずらす量。壁に入るならずらさない
+NudgeX:
+    .a8
+    jsr EnemySavePos
+    rep #$20
+    lda d_x,x
+    clc
+    adc bi
+    sta d_x,x
+    sep #$20
+    jmp EnemyClip
 
 ; X, Y = 敵の添字
 BumpPair:

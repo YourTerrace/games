@@ -98,6 +98,23 @@ class Emu:
             self.frames += 1
         self.held = set()
 
+    def save_state(self):
+        c = self.core
+        c.retro_serialize_size.restype = C.c_size_t
+        n = c.retro_serialize_size()
+        buf = C.create_string_buffer(n)
+        c.retro_serialize.argtypes = [C.c_void_p, C.c_size_t]
+        c.retro_serialize.restype = C.c_bool
+        assert c.retro_serialize(buf, n)
+        return buf.raw
+
+    def load_state(self, data):
+        c = self.core
+        c.retro_unserialize.argtypes = [C.c_void_p, C.c_size_t]
+        c.retro_unserialize.restype = C.c_bool
+        buf = C.create_string_buffer(data, len(data))
+        assert c.retro_unserialize(buf, len(data))
+
     def audio_peak(self, clear=True):
         """溜まった音声の最大振幅 (0-32767)。"""
         import array

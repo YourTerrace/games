@@ -73,6 +73,9 @@ def skip_dialogue(limit=40):
     return False
 
 
+PROTECT = False             # True の間、歩く時も HP を書き戻す (道中を急ぐ時)
+
+
 def walk_to(tx, ty, limit=600):
     """(tx, ty) へ歩く。引っかかったら片方の軸だけで滑らせる。"""
     for _ in range(limit):
@@ -81,6 +84,9 @@ def walk_to(tx, ty, limit=600):
         v = "DOWN" if y < ty - 1 else "UP" if y > ty + 1 else ""
         if not h and not v:
             return True
+        if PROTECT:
+            poke_w("p_hp", 100)
+            r[sym["p_inv"]] = 30
         emu.run(1, "+".join(k for k in (h, v) if k))
         if pos() == (x, y):
             for k in (h, v, "DOWN" if v == "UP" else "UP", "LEFT" if h == "RIGHT" else "RIGHT"):
@@ -92,260 +98,266 @@ def walk_to(tx, ty, limit=600):
 
 
 print(f"core: {core}")
-emu.run(120)
-shot("01_title")
-check("タイトルで曲が鳴る", emu.audio_peak() > 3000)
-check("タイトルが出る (記録なし)", b("title_has") == 0 and emu.image().getextrema() != ((0, 0),) * 3)
-emu.run(2, "START")
-emu.run(150)
-shot("02_opening")
-check("はじめから: 村で始まる", b("room") == 0 and pos() == (128, 136), f"room={b('room')} pos={pos()}")
-p0 = pos()
-emu.run(20, "RIGHT")
-check("会話中は動けない", pos() == p0)
-check("会話を送ると動けるようになる", skip_dialogue())
+LOAD_CH1 = sys.argv[sys.argv.index("--load-ch1") + 1] if "--load-ch1" in sys.argv else None
+if LOAD_CH1:                          # 調べもの用: 1 章のはじまりから
+    emu.run(5)
+    emu.load_state(open(LOAD_CH1, "rb").read())
+else:
+    emu.run(120)
+    shot("01_title")
+    check("タイトルで曲が鳴る", emu.audio_peak() > 3000)
+    check("タイトルが出る (記録なし)", b("title_has") == 0 and emu.image().getextrema() != ((0, 0),) * 3)
+    emu.run(2, "START")
+    emu.run(150)
+    shot("02_opening")
+    check("はじめから: 村で始まる", b("room") == 0 and pos() == (128, 136), f"room={b('room')} pos={pos()}")
+    p0 = pos()
+    emu.run(20, "RIGHT")
+    check("会話中は動けない", pos() == p0)
+    check("会話を送ると動けるようになる", skip_dialogue())
 
-# 木は通れない
-walk_to(128, 170)
-emu.run(120, "DOWN")
-check("木の壁で止まる", pos()[1] < 200, f"y={pos()[1]}")
+    # 木は通れない
+    walk_to(128, 170)
+    emu.run(120, "DOWN")
+    check("木の壁で止まる", pos()[1] < 200, f"y={pos()[1]}")
 
-# 焚き火で記録
-walk_to(216, 136)
-emu.run(4, "UP")
-fire_pos = pos()
-emu.run(2, "Y")
-emu.run(80)
-emu.run(2, "A")             # 焚き火の会話を閉じると支度メニュー
-emu.run(120)
-check("焚き火で支度メニューが開く", b("menu_cur") == 0 and pos() == fire_pos)
-emu.run(2, "DOWN")
-emu.run(10)
-emu.run(2, "DOWN")
-emu.run(10)
-emu.run(2, "A")             # 献立: なし → 鹿肉
-emu.run(40)
-shot("03_prep")
-check("最初は前掛けを身につけている (守+3)", b("am1") == 1 and b("p_def") == 3)
-for _ in range(2):
+    # 焚き火で記録
+    walk_to(216, 136)
+    emu.run(4, "UP")
+    fire_pos = pos()
+    emu.run(2, "Y")
+    emu.run(80)
+    emu.run(2, "A")             # 焚き火の会話を閉じると支度メニュー
+    emu.run(120)
+    check("焚き火で支度メニューが開く", b("menu_cur") == 0 and pos() == fire_pos)
     emu.run(2, "DOWN")
     emu.run(10)
-emu.run(60)                 # 窓の外の行へ動くと描き直す
-check("支度メニューが下へ送られる", b("menu_cur") == 4 and b("menu_top") == 1, f"cur={b('menu_cur')} top={b('menu_top')}")
-emu.run(2, "A")             # 前掛け → なし
-emu.run(40)
-shot("03b_amulet")
-emu.run(2, "B")
-emu.run(60)
-check("献立を選ぶと力が上がる (鹿肉 +3)", b("meal") == 1 and b("p_str") == 13, f"str={b('p_str')}")
-check("護符を外すと守が戻る", b("am1") == 0 and b("p_def") == 0, f"am1={b('am1')} def={b('p_def')}")
-check("支度を終えると記録される", emu.sram is not None and bytes(emu.sram[0:2]) == b"CE" and emu.sram[3 + sym["meal"] - sym["save_blk"]] == 1)
-check("記録のあと歩ける", skip_dialogue())
+    emu.run(2, "DOWN")
+    emu.run(10)
+    emu.run(2, "A")             # 献立: なし → 鹿肉
+    emu.run(40)
+    shot("03_prep")
+    check("最初は前掛けを身につけている (守+3)", b("am1") == 1 and b("p_def") == 3)
+    for _ in range(2):
+        emu.run(2, "DOWN")
+        emu.run(10)
+    emu.run(60)                 # 窓の外の行へ動くと描き直す
+    check("支度メニューが下へ送られる", b("menu_cur") == 4 and b("menu_top") == 1, f"cur={b('menu_cur')} top={b('menu_top')}")
+    emu.run(2, "A")             # 前掛け → なし
+    emu.run(40)
+    shot("03b_amulet")
+    emu.run(2, "B")
+    emu.run(60)
+    check("献立を選ぶと力が上がる (鹿肉 +3)", b("meal") == 1 and b("p_str") == 13, f"str={b('p_str')}")
+    check("護符を外すと守が戻る", b("am1") == 0 and b("p_def") == 0, f"am1={b('am1')} def={b('p_def')}")
+    check("支度を終えると記録される", emu.sram is not None and bytes(emu.sram[0:2]) == b"CE" and emu.sram[3 + sym["meal"] - sym["save_blk"]] == 1)
+    check("記録のあと歩ける", skip_dialogue())
 
-# 村人と話す
-walk_to(200, 112)
-emu.run(4, "UP")
-emu.run(2, "Y")
-emu.run(60)
-p0 = pos()
-emu.run(10, "LEFT")
-check("村人に話しかけると会話になる", pos() == p0)
-shot("04_talk")
-skip_dialogue()
+    # 村人と話す
+    walk_to(200, 112)
+    emu.run(4, "UP")
+    emu.run(2, "Y")
+    emu.run(60)
+    p0 = pos()
+    emu.run(10, "LEFT")
+    check("村人に話しかけると会話になる", pos() == p0)
+    shot("04_talk")
+    skip_dialogue()
 
-# 北へ出ると次の部屋
-walk_to(128, 112)
-for _ in range(400):
-    emu.run(1, "UP")
-    if b("room") == 1:
-        break
-check("画面の切れ目から隣の部屋へ移る", b("room") == 1, f"room={b('room')}")
-emu.run(40)
-check("移った先に苔ネズミがいる", [b("d_type", k) for k in enemies()] == [1, 1])
-check("母がそばについてくる", abs(b("m_x", 1) - pos()[0]) < 40 and abs(b("m_y", 1) - pos()[1]) < 40)
-shot("05_room1")
+    # 北へ出ると次の部屋
+    walk_to(128, 112)
+    for _ in range(400):
+        emu.run(1, "UP")
+        if b("room") == 1:
+            break
+    check("画面の切れ目から隣の部屋へ移る", b("room") == 1, f"room={b('room')}")
+    emu.run(40)
+    check("移った先に苔ネズミがいる", [b("d_type", k) for k in enemies()] == [1, 1])
+    check("母がそばについてくる", abs(b("m_x", 1) - pos()[0]) < 40 and abs(b("m_y", 1) - pos()[1]) < 40)
+    shot("05_room1")
 
-# ジャスト回避 → 返し刃
-def incoming():
-    for k in enemies():
-        if b("d_state", k) != 2 or b("d_tgt", k):
-            continue
-        if abs(b("d_x", k + 1) - pos()[0]) < 26 and abs(b("d_y", k + 1) - pos()[1]) < 22:
-            return True
-    return False
+    # ジャスト回避 → 返し刃
+    def incoming():
+        for k in enemies():
+            if b("d_state", k) != 2 or b("d_tgt", k):
+                continue
+            if abs(b("d_x", k + 1) - pos()[0]) < 26 and abs(b("d_y", k + 1) - pos()[1]) < 22:
+                return True
+        return False
 
 
-hp0 = w("p_hp")
-for _ in range(900):
-    emu.run(1, "B+LEFT" if incoming() and b("p_state") == 0 else "")
-    if b("p_just"):
-        break
-check("引きつけて回避するとジャスト回避", b("p_just") > 0 and w("p_hp") == hp0)
-check("ジャスト回避で見切り印がつく", b("marks", 1) == 1, f"marks={[b('marks', i) for i in range(5)]}")
-emu.run(2, "Y")
-emu.run(10)
-check("直後の Y が返し刃になる", b("p_stage") == 4)
-emu.run(40)
-check("返し刃は大ダメージ", w("last_dmg") >= 80, f"dmg={w('last_dmg')}")
+    hp0 = w("p_hp")
+    for _ in range(900):
+        emu.run(1, "B+LEFT" if incoming() and b("p_state") == 0 else "")
+        if b("p_just"):
+            break
+    check("引きつけて回避するとジャスト回避", b("p_just") > 0 and w("p_hp") == hp0)
+    check("ジャスト回避で見切り印がつく", b("marks", 1) == 1, f"marks={[b('marks', i) for i in range(5)]}")
+    emu.run(2, "Y")
+    emu.run(10)
+    check("直後の Y が返し刃になる", b("p_stage") == 4)
+    emu.run(40)
+    check("返し刃は大ダメージ", w("last_dmg") >= 80, f"dmg={w('last_dmg')}")
 
-# 溜め斬り
-emu.run(30)
-emu.run(110, "Y")
-check("Y を押し続けると溜まる", b("p_charge") >= 36, f"charge={b('p_charge')}")
-emu.run(8)
-check("離すと溜め斬り", b("p_stage") in (5, 6), f"stage={b('p_stage')}")
-check("当てると熟練の経験が溜まる", sum(w("mq_exp", i) for i in (0, 2, 4)) > 0,
-      f"exp={[w('mq_exp', i) for i in (0, 2, 4)]} lv={[b('mq_lv', i) for i in range(3)]}")
-emu.run(60)
-poke_w("p_hp", 40)
-med0 = b("med")
-emu.run(2, "L")
-emu.run(4)
-check("L で傷薬を使うと HP が戻る", b("med") == med0 - 1 and w("p_hp") == 100, f"med {med0}->{b('med')} hp={w('p_hp')}")
-emu.run(2, "SELECT")
-emu.run(2)
-check("SELECT で薬の種類が切り替わる", b("med_sel") == 1)
-emu.run(2, "SELECT")
-emu.run(2, "SELECT")
-emu.run(2)
+    # 溜め斬り
+    emu.run(30)
+    emu.run(110, "Y")
+    check("Y を押し続けると溜まる", b("p_charge") >= 36, f"charge={b('p_charge')}")
+    emu.run(8)
+    check("離すと溜め斬り", b("p_stage") in (5, 6), f"stage={b('p_stage')}")
+    check("当てると熟練の経験が溜まる", sum(w("mq_exp", i) for i in (0, 2, 4)) > 0,
+          f"exp={[w('mq_exp', i) for i in (0, 2, 4)]} lv={[b('mq_lv', i) for i in range(3)]}")
+    emu.run(60)
+    poke_w("p_hp", 40)
+    med0 = b("med")
+    emu.run(2, "L")
+    emu.run(4)
+    check("L で傷薬を使うと HP が戻る", b("med") == med0 - 1 and w("p_hp") == 100, f"med {med0}->{b('med')} hp={w('p_hp')}")
+    emu.run(2, "SELECT")
+    emu.run(2)
+    check("SELECT で薬の種類が切り替わる", b("med_sel") == 1)
+    emu.run(2, "SELECT")
+    emu.run(2, "SELECT")
+    emu.run(2)
 
-# 以降は道中を急ぐ: HP を書き戻しながら北へ
-def rush_up(target_room):
-    for _ in range(2500):
+    # 以降は道中を急ぐ: HP を書き戻しながら北へ
+    def rush_up(target_room):
+        for _ in range(2500):
+            poke_w("p_hp", 100)
+            r[sym["p_inv"]] = 30
+            x = pos()[0]
+            emu.run(1, "UP" + ("+RIGHT" if x < 126 else "+LEFT" if x > 130 else ""))
+            if b("room") == target_room:
+                return True
+        return False
+
+
+    walk_to(128, pos()[1])
+    check("裏山 1 へ", rush_up(2))
+    # 作戦: START で開いて「まえにでる」に。母が殴りに行く
+    for _ in range(60):
         poke_w("p_hp", 100)
         r[sym["p_inv"]] = 30
-        x = pos()[0]
-        emu.run(1, "UP" + ("+RIGHT" if x < 126 else "+LEFT" if x > 130 else ""))
-        if b("room") == target_room:
-            return True
-    return False
-
-
-walk_to(128, pos()[1])
-check("裏山 1 へ", rush_up(2))
-# 作戦: START で開いて「まえにでる」に。母が殴りに行く
-for _ in range(60):
-    poke_w("p_hp", 100)
-    r[sym["p_inv"]] = 30
-    emu.run(1)
-emu.run(2, "START")
-emu.run(200)
-p0 = pos()
-emu.run(10, "UP")
-check("START で一時停止 (動けない)", pos() == p0)
-emu.run(120)
-emu.run(2, "UP")            # 上下はページ送りなので 1 ページ目に戻す
-emu.run(120)
-emu.run(2, "A")
-emu.run(60)
-check("作戦を切り替えられる", b("m_tac") == 1)
-emu.run(2, "DOWN")
-emu.run(120)
-shot("05d_pause2")
-check("一時停止の 2 ページ目 (熟練・カルテ)", b("pause_pg") == 1)
-emu.run(2, "DOWN")
-emu.run(120)
-shot("05c_pause")
-emu.run(2, "START")
-emu.run(20)
-punched = False
-for _ in range(900):
-    poke_w("p_hp", 100)
-    r[sym["p_inv"]] = 30
-    r[sym["m_inv"]] = 30
-    emu.run(1)
-    if b("m_state") == 3:
-        punched = True
-        break
-check("まえにでる: 母が敵を殴りに行く", punched)
-emu.run(2, "START")
-emu.run(200)
-emu.run(2, "A")
-emu.run(60)
-emu.run(2, "A")
-emu.run(60)
-emu.run(2, "START")
-emu.run(20)
-check("作戦を よりそう に戻せる", b("m_tac") == 0)
-# 箱から苔断ち
-for _ in range(300):
-    poke_w("p_hp", 100)
-    r[sym["p_inv"]] = 30
-    if walk_to(40, 152, 1):
-        break
-emu.run(4, "LEFT")
-emu.run(2, "Y")
-emu.run(60)
-check("箱から苔断ちを手に入れる", b("own") & 4, f"own={b('own')}")
-shot("05b_chest")
-skip_dialogue()
-emu.audio_peak()
-# 過治癒 → 崩壊
-collapsed = False
-for _ in range(10):
-    poke_w("p_hp", 100)
-    r[sym["m_hp"]] = 70
-    emu.run(2, "X")
-    for _ in range(56):
+        emu.run(1)
+    emu.run(2, "START")
+    emu.run(200)
+    p0 = pos()
+    emu.run(10, "UP")
+    check("START で一時停止 (動けない)", pos() == p0)
+    emu.run(120)
+    emu.run(2, "UP")            # 上下はページ送りなので 1 ページ目に戻す
+    emu.run(120)
+    emu.run(2, "A")
+    emu.run(60)
+    check("作戦を切り替えられる", b("m_tac") == 1)
+    emu.run(2, "DOWN")
+    emu.run(120)
+    shot("05d_pause2")
+    check("一時停止の 2 ページ目 (熟練・カルテ)", b("pause_pg") == 1)
+    emu.run(2, "DOWN")
+    emu.run(120)
+    shot("05c_pause")
+    emu.run(2, "START")
+    emu.run(20)
+    punched = False
+    for _ in range(900):
+        poke_w("p_hp", 100)
         r[sym["p_inv"]] = 30
         r[sym["m_inv"]] = 30
         emu.run(1)
-        collapsed = collapsed or any(b("d_col", k) for k in range(0, 12, 2))
-    if collapsed:
-        break
-check("過治癒を重ねると敵が崩壊する", collapsed)
-check("崩壊させると母のカルテに書かれる", sum(b("chart", i) for i in range(5)) >= 1)
-check("効果音が鳴っている", emu.audio_peak() > 1000)
-shot("06_collapse")
-check("裏山 2 へ", rush_up(3))
-shot("07_room3")
-check("水車小屋へ", rush_up(4))
-emu.run(60)
-shot("08_boss_intro")
-emu.audio_peak()
-emu.run(120)
-check("ボス部屋で曲が鳴る", emu.audio_peak() > 3000)
-check("ボス部屋に水車番がいる", 4 in [b("d_type", k) for k in enemies()])
-check("ボス前の会話を送れる", skip_dialogue())
+        if b("m_state") == 3:
+            punched = True
+            break
+    check("まえにでる: 母が敵を殴りに行く", punched)
+    emu.run(2, "START")
+    emu.run(200)
+    emu.run(2, "A")
+    emu.run(60)
+    emu.run(2, "A")
+    emu.run(60)
+    emu.run(2, "START")
+    emu.run(20)
+    check("作戦を よりそう に戻せる", b("m_tac") == 0)
+    # 箱から苔断ち
+    for _ in range(300):
+        poke_w("p_hp", 100)
+        r[sym["p_inv"]] = 30
+        if walk_to(40, 152, 1):
+            break
+    emu.run(4, "LEFT")
+    emu.run(2, "Y")
+    emu.run(60)
+    check("箱から苔断ちを手に入れる", b("own") & 4, f"own={b('own')}")
+    shot("05b_chest")
+    skip_dialogue()
+    emu.audio_peak()
+    # 過治癒 → 崩壊
+    collapsed = False
+    for _ in range(10):
+        poke_w("p_hp", 100)
+        r[sym["m_hp"]] = 70
+        emu.run(2, "X")
+        for _ in range(56):
+            r[sym["p_inv"]] = 30
+            r[sym["m_inv"]] = 30
+            emu.run(1)
+            collapsed = collapsed or any(b("d_col", k) for k in range(0, 12, 2))
+        if collapsed:
+            break
+    check("過治癒を重ねると敵が崩壊する", collapsed)
+    check("崩壊させると母のカルテに書かれる", sum(b("chart", i) for i in range(5)) >= 1)
+    check("効果音が鳴っている", emu.audio_peak() > 1000)
+    shot("06_collapse")
+    check("裏山 2 へ", rush_up(3))
+    shot("07_room3")
+    check("水車小屋へ", rush_up(4))
+    emu.run(60)
+    shot("08_boss_intro")
+    emu.audio_peak()
+    emu.run(120)
+    check("ボス部屋で曲が鳴る", emu.audio_peak() > 3000)
+    check("ボス部屋に水車番がいる", 4 in [b("d_type", k) for k in enemies()])
+    check("ボス前の会話を送れる", skip_dialogue())
 
-# ボスの技: 種撒き (飛び道具) が出るまで見る
-seen_shot = False
-for _ in range(900):
-    poke_w("p_hp", 100)
-    r[sym["p_inv"]] = 30
-    emu.run(1)
-    if any(b("sh_t", i) for i in range(0, 16, 2)):
-        seen_shot = True
-        break
-check("ボスが種を撒く", seen_shot)
+    # ボスの技: 種撒き (飛び道具) が出るまで見る
+    seen_shot = False
+    for _ in range(900):
+        poke_w("p_hp", 100)
+        r[sym["p_inv"]] = 30
+        emu.run(1)
+        if any(b("sh_t", i) for i in range(0, 16, 2)):
+            seen_shot = True
+            break
+    check("ボスが種を撒く", seen_shot)
 
-# ボス: HP を 1 にして斬る
-boss = [k for k in enemies() if b("d_type", k) == 4][0]
-shot("09_boss")
-for _ in range(900):
-    poke_w("p_hp", 100)
-    r[sym["p_inv"]] = 30
-    poke_w("d_hp", 1, boss)
-    bx, by = b("d_x", boss + 1), b("d_y", boss + 1)
-    x, y = pos()
-    if abs(x - bx) > 6:
-        emu.run(1, "RIGHT" if x < bx else "LEFT")
-    elif y - by > 30:
-        emu.run(1, "UP")
-    else:
-        emu.run(2, "UP+Y")
-        emu.run(6, "UP")
-    if b("d_dead", boss) or b("boss_dead"):
-        break
-for _ in range(200):
-    emu.run(1)
-    if b("boss_dead"):
-        break
-check("ボスを倒せる", b("boss_dead") == 1)
-emu.run(120)
-shot("10_ending")
+    # ボス: HP を 1 にして斬る
+    boss = [k for k in enemies() if b("d_type", k) == 4][0]
+    shot("09_boss")
+    for _ in range(900):
+        poke_w("p_hp", 100)
+        r[sym["p_inv"]] = 30
+        poke_w("d_hp", 1, boss)
+        bx, by = b("d_x", boss + 1), b("d_y", boss + 1)
+        x, y = pos()
+        if abs(x - bx) > 6:
+            emu.run(1, "RIGHT" if x < bx else "LEFT")
+        elif y - by > 30:
+            emu.run(1, "UP")
+        else:
+            emu.run(2, "UP+Y")
+            emu.run(6, "UP")
+        if b("d_dead", boss) or b("boss_dead"):
+            break
+    for _ in range(200):
+        emu.run(1)
+        if b("boss_dead"):
+            break
+    check("ボスを倒せる", b("boss_dead") == 1)
+    emu.run(120)
+    shot("10_ending")
 
 # ---- 序章の結末 → 村へ戻って 1 章
+PROTECT = True
 for _ in range(30):
     emu.run(2, "A")
     emu.run(50)
@@ -356,6 +368,10 @@ for _ in range(30):
             break
 check("序章のあと村へ戻る (1 章のはじまり)", b("room") == 0 and b("boss_dead") == 1)
 check("水車の鉄軸を手に入れている", b("own") & 8)
+if "--save-ch1" in sys.argv:          # 調べもの用: 1 章のはじまりを保存して終わる
+    open(sys.argv[sys.argv.index("--save-ch1") + 1], "wb").write(emu.save_state())
+    print("saved")
+    sys.exit(0)
 shot("11_ch1_start")
 gate = [i for i in range(8) if b("it_kind", i) == 2 and b("it_a", i) == 3]
 check("門番はもういない", not gate)
@@ -481,7 +497,7 @@ check("千年角の大鹿がいる", len(stag) == 1)
 stag = stag[0]
 shot("15_stag")
 # 壁際に立って突進させ、壁で目を回させる
-walk_to(48, 180)
+walk_to(56, 168)
 stunned = False
 for _ in range(2500):
     poke_w("p_hp", 100)
@@ -493,10 +509,16 @@ for _ in range(2500):
         break
 check("大鹿は壁にぶつかると目を回す", stunned)
 shot("16_stag_stun")
-for _ in range(1500):
+for _ in range(4000):           # 目を回している間に斬る
     poke_w("p_hp", 100)
     r[sym["p_inv"]] = 30
     poke_w("d_hp", 1, stag)
+    if b("stag_dead") or b("d_dead", stag) or not b("d_type", stag):
+        break
+    if not b("d_stun", stag):
+        walk_to(56, 168, 8)
+        emu.run(1)
+        continue
     bx, by = b("d_x", stag + 1), b("d_y", stag + 1)
     x, y = pos()
     if abs(x - bx) > 8:

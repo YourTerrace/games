@@ -92,31 +92,45 @@ SolidAt:
 ; 主人公の足元の四隅のどれかが壁ならキャリーを立てる
 PlayerBlocked:
     .a8
-    lda p_x+1
+    lda p_x+1               ; 四隅の座標。画面の端を越えて回り込まないよう 0 / 255 で止める
     sec
     sbc #5
-    sta cx
-    lda p_y+1
-    sec
-    sbc #3
-    sta cy
-    jsr SolidAt
-    bcs @yes
+    bcs :+
+    lda #0
+:   sta pb_l
     lda p_x+1
     clc
     adc #5
-    sta cx
-    jsr SolidAt
-    bcs @yes
+    bcc :+
+    lda #$FF
+:   sta pb_r
+    lda p_y+1
+    sec
+    sbc #3
+    bcs :+
+    lda #0
+:   sta pb_t
     lda p_y+1
     clc
     adc #3
+    bcc :+
+    lda #$FF
+:   sta pb_b
+    lda pb_l
+    sta cx
+    lda pb_t
     sta cy
     jsr SolidAt
     bcs @yes
-    lda p_x+1
-    sec
-    sbc #5
+    lda pb_r
+    sta cx
+    jsr SolidAt
+    bcs @yes
+    lda pb_b
+    sta cy
+    jsr SolidAt
+    bcs @yes
+    lda pb_l
     sta cx
     jsr SolidAt
 @yes:
@@ -141,13 +155,33 @@ EnemyClip:
     sta cy
     jsr SolidAt
     bcc @ok
-    lda oe_x+1              ; 元いた場所も壁なら (埋まっている) そのまま動かして抜けさせる
-    sta cx
-    lda oe_y+1
+    lda oe_y+1              ; 横だけ動かしてみる
     sta cy
     jsr SolidAt
-    bcs @ok
+    bcs @try_y
     rep #$20
+    lda oe_y
+    sta d_y,x
+    stz d_vy,x
+    sep #$20
+    sec                     ; 壁に当たった (滑った)
+    rts
+@try_y:
+    lda oe_x+1              ; 縦だけ動かしてみる
+    sta cx
+    lda d_y+1,x
+    sta cy
+    jsr SolidAt
+    bcs @back
+    rep #$20
+    lda oe_x
+    sta d_x,x
+    stz d_vx,x
+    sep #$20
+    sec
+    rts
+@back:
+    rep #$20                ; どちらもだめなら元いた場所へ
     lda oe_x
     sta d_x,x
     lda oe_y
@@ -155,7 +189,7 @@ EnemyClip:
     stz d_vx,x
     stz d_vy,x
     sep #$20
-    sec                     ; 壁に当たった
+    sec
     rts
 @ok:
     clc
