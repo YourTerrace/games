@@ -765,11 +765,11 @@ DrawMother:
 ; 主人公と母を奥行き順に
 DrawHeroAndMother:
     .a8
-    rep #$20
-    lda m_y
-    cmp p_y
+    rep #$20                ; 同じ高さなら主人公が手前
+    lda p_y
+    cmp m_y
     sep #$20
-    bcc @behind
+    bcs @behind
     jsr DrawMother
     jsr DrawSwords
     jmp DrawPlayer

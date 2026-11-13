@@ -457,17 +457,29 @@ ChangeRoom:
     lda p_y
     sta m_y
     sep #$20
-    lda p_x+1               ; 母は左隣に (壁ならいったん同じ場所)
-    sec
-    sbc #18
+    ldx #$0000              ; 母は左、右、上、下の順で、壁でない隣に
+@mom:
+    lda p_x+1
+    clc
+    adc mom_dx,x
     sta cx
     lda p_y+1
+    clc
+    adc mom_dy,x
     sta cy
     jsr SolidAt
-    bcs :+
+    bcc @momok
+    inx
+    cpx #$0004
+    bne @mom
+    bra @momdone
+@momok:
     lda cx
     sta m_x+1
-:   jsr SetRestSwords
+    lda cy
+    sta m_y+1
+@momdone:
+    jsr SetRestSwords
     lda swA_ang
     sta swA_prev
     lda swB_ang
@@ -1144,3 +1156,6 @@ BossDefeated:
     ldx #$1FFF
     txs
     jmp Restart
+
+mom_dx: .byte <-18, 18, 0, 0
+mom_dy: .byte 0, 0, <-20, 20

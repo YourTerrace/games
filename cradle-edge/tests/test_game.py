@@ -186,6 +186,7 @@ else:
         return False
 
 
+    walk_to(128, 150)           # 広いところで
     hp0 = w("p_hp")
     for _ in range(900):
         emu.run(1, "B+LEFT" if incoming() and b("p_state") == 0 else "")
@@ -193,6 +194,7 @@ else:
             break
     check("引きつけて回避するとジャスト回避", b("p_just") > 0 and w("p_hp") == hp0)
     check("ジャスト回避で見切り印がつく", b("marks", 1) == 1, f"marks={[b('marks', i) for i in range(5)]}")
+    r[sym["p_inv"]] = 40       # 返し刃そのものを確かめるため、他の敵に邪魔させない
     emu.run(2, "Y")
     emu.run(10)
     check("直後の Y が返し刃になる", b("p_stage") == 4)
@@ -201,7 +203,10 @@ else:
 
     # 溜め斬り
     emu.run(30)
-    emu.run(110, "Y")
+    for _ in range(110):        # 押し続ける間、邪魔されないように守る
+        poke_w("p_hp", 100)
+        r[sym["p_inv"]] = 30
+        emu.run(1, "Y")
     check("Y を押し続けると溜まる", b("p_charge") >= 36, f"charge={b('p_charge')}")
     emu.run(8)
     check("離すと溜め斬り", b("p_stage") in (5, 6), f"stage={b('p_stage')}")
@@ -555,4 +560,5 @@ shot("19_continue")
 
 print("PASS" if ok else "FAIL")
 sys.exit(0 if ok else 1)
+
 
