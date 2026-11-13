@@ -5,7 +5,7 @@
 ;   - 見切り印: 敵の種別ごとに最大 3。合計が力に、3 つ揃うと受付と返し刃が伸びる
 ;  装備や印が変わったら RecalcStats で連斬の性能表 (r_*) を作り直す。
 ; ============================================================================
-NUM_SWORDS  = 4
+NUM_SWORDS  = 5
 NUM_STAGES  = 7
 MEAL_MEAT   = 1             ; 力 +3
 MEAL_ROOT   = 2             ; 守 +3
@@ -234,8 +234,10 @@ NextSword:
 @loop:
     lda t1
     inc a
-    and #$03
-    sta t1
+    cmp #NUM_SWORDS
+    bcc :+
+    lda #0
+:   sta t1
     cmp t0
     beq @skip
     ldx t1
@@ -975,9 +977,9 @@ kit_r:   .byte 0,       0,      2,      0
 med_letter: .byte 18, 20, 28          ; HUD フォントの H / J / R
 
 ;             鉄塊「暁」 鉄塊「宵」 苔断ち  水車の鉄軸
-sw_atk:  .byte 12,        10,        16,     22
-sw_wt:   .byte 4,         4,         4,      8
-sw_flag: .byte 0,         0,         1,      0      ; bit0 = 繁り特効
+sw_atk:  .byte 12,        10,        16,     22,     20     ; 最後は 角折り
+sw_wt:   .byte 4,         4,         4,      8,      5
+sw_flag: .byte 0,         0,         1,      0,      0      ; bit0 = 繁り特効
 bit_tbl:
 bit_tbl8: .byte 1, 2, 4, 8, 16, 32, 64, 128
 ; 段ごとに使う手: bit0 = 暁手, bit1 = 宵手

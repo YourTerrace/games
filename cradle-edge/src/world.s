@@ -297,6 +297,16 @@ LoadRoom:
     ply
     bra @obj
 @item:
+    lda t3                  ; 門番: 水車番を倒すまで道をふさぐ
+    cmp #O_GATE
+    bne :+
+    lda boss_dead
+    beq :++
+    jmp @obj
+:   jmp @find0
+:   lda #O_NPC
+    sta t3
+@find0:
     ldx #$0000
 @find:
     lda it_kind,x
@@ -320,8 +330,9 @@ LoadRoom:
     sta it_b,x
     lda t3                  ; 村人の立っているマスは通れない
     cmp #O_NPC
-    bne @obj
-    phx
+    beq :+
+    jmp @obj
+:   phx
     rep #$20
     lda cy
     and #$00F0
@@ -1034,12 +1045,9 @@ TitleScreen:
 ; ボスを倒した後: 会話 → 記録 → タイトルへ
 BossDefeated:
     .a8
+    lda ev_boss
+    pha
     stz ev_boss
-    lda #$01
-    sta boss_dead
-    lda own                 ; 水車の鉄軸
-    ora #%1000
-    sta own
     ldx #$0000
 @kill:
     stz d_type,x
@@ -1059,9 +1067,46 @@ BossDefeated:
     bne @wait
     lda #BGM_VILLAGE
     jsr PlayMusic
+    pla
+    cmp #TYPE_STAG
+    beq @stag
+    ; ---- 序章の結末 → 村へ戻って 1 章へ
+    lda #$01
+    sta boss_dead
+    lda own                 ; 水車の鉄軸
+    ora #%01000
+    sta own
     lda #SCR_BOSS_OUT
     jsr ShowScript
+    stz chk_room            ; 村の焚き火から
+    lda #VILLAGE_FIRE_X
+    sta chk_x
+    lda #VILLAGE_FIRE_Y
+    sta chk_y
     jsr SaveGame
-    ldx #$1FFF              ; スタックを捨ててタイトルから
+    ldx #$1FFF
+    txs
+    jsr FadeOut
+    jsr InitGame
+    lda #SCR_CH1
+    jsr ShowScript
+    jmp MainLoop
+@stag:
+    ; ---- 1 章の結末 → タイトルへ
+    lda #$01
+    sta stag_dead
+    lda own                 ; 角折り
+    ora #%10000
+    sta own
+    lda #SCR_STAG_OUT
+    jsr ShowScript
+    lda #HAMLET_ROOM        ; 狩人の集落の焚き火から
+    sta chk_room
+    lda #HAMLET_FIRE_X
+    sta chk_x
+    lda #HAMLET_FIRE_Y
+    sta chk_y
+    jsr SaveGame
+    ldx #$1FFF
     txs
     jmp Restart

@@ -74,20 +74,20 @@ def skip_dialogue(limit=40):
 
 
 def walk_to(tx, ty, limit=600):
+    """(tx, ty) へ歩く。引っかかったら片方の軸だけで滑らせる。"""
     for _ in range(limit):
         x, y = pos()
-        keys = []
-        if x < tx - 1:
-            keys.append("RIGHT")
-        elif x > tx + 1:
-            keys.append("LEFT")
-        if y < ty - 1:
-            keys.append("DOWN")
-        elif y > ty + 1:
-            keys.append("UP")
-        if not keys:
+        h = "RIGHT" if x < tx - 1 else "LEFT" if x > tx + 1 else ""
+        v = "DOWN" if y < ty - 1 else "UP" if y > ty + 1 else ""
+        if not h and not v:
             return True
-        emu.run(1, "+".join(keys))
+        emu.run(1, "+".join(k for k in (h, v) if k))
+        if pos() == (x, y):
+            for k in (h, v, "DOWN" if v == "UP" else "UP", "LEFT" if h == "RIGHT" else "RIGHT"):
+                if k:
+                    emu.run(4, k)
+                    if pos() != (x, y):
+                        break
     return False
 
 
@@ -344,19 +344,192 @@ for _ in range(200):
 check("ボスを倒せる", b("boss_dead") == 1)
 emu.run(120)
 shot("10_ending")
-for _ in range(12):
+
+# ---- 序章の結末 → 村へ戻って 1 章
+for _ in range(30):
+    emu.run(2, "A")
+    emu.run(50)
+    if b("room") == 0 and b("p_state") == 0 and not b("dead_t"):
+        p0 = pos()
+        emu.run(6, "RIGHT")
+        if pos() != p0:
+            break
+check("序章のあと村へ戻る (1 章のはじまり)", b("room") == 0 and b("boss_dead") == 1)
+check("水車の鉄軸を手に入れている", b("own") & 8)
+shot("11_ch1_start")
+gate = [i for i in range(8) if b("it_kind", i) == 2 and b("it_a", i) == 3]
+check("門番はもういない", not gate)
+walk_to(232, 104)
+for _ in range(200):
+    emu.run(1, "RIGHT")
+    if b("room") == 5:
+        break
+check("村の東から街道へ出られる", b("room") == 5)
+emu.run(30)
+skip_dialogue()
+shot("12_road1")
+
+
+def rush(target_room, limit=3000):
+    """HP を書き戻しながら、上の出口へ向かう。"""
+    for _ in range(limit):
+        poke_w("p_hp", 100)
+        r[sym["p_inv"]] = 30
+        r[sym["m_inv"]] = 30
+        x, y = pos()
+        keys = "UP"
+        if x < 120:
+            keys += "+RIGHT"
+        elif x > 136:
+            keys += "+LEFT"
+        emu.run(1, keys)
+        if b("room") == target_room:
+            emu.run(30)
+            skip_dialogue()
+            return True
+        if b("p_state") == 0 and pos() == (x, y) and y > 100:
+            emu.run(4, "LEFT" if x > 128 else "RIGHT")
+    return False
+
+
+check("街道 2 へ", rush(6))
+check("森 1 へ", rush(7))
+check("狩人の集落へ", rush(8))
+shot("13_hamlet")
+check("森 2 (番犬) へ", rush(9))
+
+# 癒え残り: 斬って倒しても起き上がる。倒れているうちに崩せば送れる
+dogs = [k for k in enemies() if b("d_type", k) == 8]
+check("番犬がいる", len(dogs) == 2)
+dog = dogs[0]
+downed = False
+for _ in range(1500):
+    poke_w("p_hp", 100)
+    r[sym["p_inv"]] = 30
+    r[sym["m_inv"]] = 30
+    if b("d_state", dog) == 4:
+        downed = True
+        break
+    poke_w("d_hp", 1, dog)
+    dx, dy = b("d_x", dog + 1), b("d_y", dog + 1)
+    x, y = pos()
+    keys = []
+    if abs(x - dx) > 20:
+        keys.append("RIGHT" if x < dx else "LEFT")
+    if abs(y - dy) > 14:
+        keys.append("DOWN" if y < dy else "UP")
+    if keys:
+        emu.run(1, "+".join(keys))
+    else:
+        emu.run(2, "Y")
+        emu.run(6)
+check("番犬は斬ると倒れる (消えない)", downed and b("d_type", dog) == 8 and not b("d_dead", dog))
+shot("14_dog_down")
+for _ in range(400):
+    poke_w("p_hp", 100)
+    r[sym["p_inv"]] = 30
+    emu.run(1)
+    if b("d_state", dog) != 4:
+        break
+check("放っておくと起き上がる", b("d_state", dog) != 4 and w("d_hp", dog) == w("d_maxhp", dog))
+# もう一度倒して、母に崩させる
+sent = False
+for _ in range(3000):
+    poke_w("p_hp", 100)
+    r[sym["p_inv"]] = 30
+    r[sym["m_inv"]] = 30
+    r[sym["m_ji"]] = 100
+    if not b("d_type", dog) or b("d_dead", dog):
+        sent = True
+        break
+    if b("d_state", dog) == 4:
+        # 倒れている: いちばん近い敵がこの犬になるよう寄って、過治癒
+        dx, dy = b("d_x", dog + 1), b("d_y", dog + 1)
+        x, y = pos()
+        if abs(x - dx) > 24 or abs(y - dy) > 20:
+            k = []
+            if abs(x - dx) > 24:
+                k.append("RIGHT" if x < dx else "LEFT")
+            if abs(y - dy) > 20:
+                k.append("DOWN" if y < dy else "UP")
+            emu.run(1, "+".join(k))
+        elif b("m_state") == 0:
+            emu.run(2, "X")
+            emu.run(2)
+        else:
+            emu.run(1)
+        continue
+    poke_w("d_hp", 1, dog)
+    dx, dy = b("d_x", dog + 1), b("d_y", dog + 1)
+    x, y = pos()
+    keys = []
+    if abs(x - dx) > 20:
+        keys.append("RIGHT" if x < dx else "LEFT")
+    if abs(y - dy) > 14:
+        keys.append("DOWN" if y < dy else "UP")
+    if keys:
+        emu.run(1, "+".join(keys))
+    else:
+        emu.run(2, "Y")
+        emu.run(6)
+check("倒れているうちに崩すと送れる", sent)
+
+check("森 3 へ", rush(10))
+check("大鹿の間へ", rush(11))
+stag = [k for k in enemies() if b("d_type", k) == 9]
+check("千年角の大鹿がいる", len(stag) == 1)
+stag = stag[0]
+shot("15_stag")
+# 壁際に立って突進させ、壁で目を回させる
+walk_to(48, 180)
+stunned = False
+for _ in range(2500):
+    poke_w("p_hp", 100)
+    r[sym["p_inv"]] = 30
+    r[sym["m_inv"]] = 30
+    emu.run(1)
+    if b("d_stun", stag) > 30:
+        stunned = True
+        break
+check("大鹿は壁にぶつかると目を回す", stunned)
+shot("16_stag_stun")
+for _ in range(1500):
+    poke_w("p_hp", 100)
+    r[sym["p_inv"]] = 30
+    poke_w("d_hp", 1, stag)
+    bx, by = b("d_x", stag + 1), b("d_y", stag + 1)
+    x, y = pos()
+    if abs(x - bx) > 8:
+        emu.run(1, "RIGHT" if x < bx else "LEFT")
+    elif y - by > 30:
+        emu.run(1, "UP")
+    elif by - y > 0:
+        emu.run(1, "DOWN")
+    else:
+        emu.run(2, "UP+Y")
+        emu.run(6, "UP")
+    if b("stag_dead") or b("d_dead", stag) or not b("d_type", stag):
+        break
+for _ in range(200):
+    emu.run(1)
+    if b("stag_dead"):
+        break
+check("大鹿を倒せる", b("stag_dead") == 1)
+check("角折りを手に入れる", b("own") & 16)
+shot("17_ch1_end")
+for _ in range(20):
     emu.run(2, "A")
     emu.run(60)
     if b("title_has"):
         break
 emu.run(120)
-shot("11_title_again")
-check("結末のあとタイトルに戻り、記録がある", b("title_has") == 1 and b("title_sel") == 1)
+shot("18_title_again")
+check("1 章の結末のあとタイトルに戻り、記録がある", b("title_has") == 1 and b("title_sel") == 1)
 emu.run(2, "START")
 emu.run(150)
-check("つづきから: 最後の焚き火の位置で再開", b("room") == 0 and pos() == fire_pos and w("p_hp") == 100,
+check("つづきから: 狩人の集落の焚き火で再開", b("room") == 8 and w("p_hp") == 100 and b("stag_dead") == 1,
       f"room={b('room')} pos={pos()}")
-shot("12_continue")
+shot("19_continue")
 
 print("PASS" if ok else "FAIL")
 sys.exit(0 if ok else 1)
