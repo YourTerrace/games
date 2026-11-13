@@ -4,6 +4,15 @@
 MS_FOLLOW   = 0
 MS_HEAL     = 1
 MS_OVER     = 2
+MS_PUNCH    = 3
+
+TAC_NEAR    = 0             ; よりそう: そばにいて、危なくなったら勝手に癒やす
+TAC_FRONT   = 1             ; まえにでる: 近くの敵を殴りに行く
+TAC_BACK    = 2             ; さがってて: 狙われにくく、慈力の戻りが速い
+MOM_FIST    = 14            ; 拳
+PUNCH_TIME  = 16
+XHOLD_TIME  = 18            ; X をこれだけ押し続けると「殴って！」
+AUTO_HP     = 40            ; よりそう: HP がこれ未満で勝手に癒やす
 
 HEAL_COST   = 20
 HEAL_TIME   = 60            ; 詠唱 1.0 秒
@@ -40,9 +49,30 @@ MotherCommands:
     lda #SE_CAST
     jmp PlaySe
 @x:
+    lda pad                 ; X: 短く押して離すと過治癒、押し続けると「殴って！」
+    and #$40
+    beq @xup
     lda pad_new
-    and #$40                ; X
+    and #$40
+    beq :+
+    lda #1
+    sta m_xhold
+    rts
+:   lda m_xhold
     beq @out
+    inc m_xhold
+    lda m_xhold
+    cmp #XHOLD_TIME
+    bcc @out
+    stz m_xhold
+    lda #1
+    sta m_order
+    lda #SE_CAST
+    jmp PlaySe
+@xup:
+    lda m_xhold
+    beq @out
+    stz m_xhold
     lda m_ji
     cmp #OVER_COST
     bcc @deny
@@ -157,15 +187,30 @@ UpdateMother:
     lda #$0F
     bra :++
 :   lda #$1F
+:   sta t0                  ; さがってて なら さらに倍
+    lda m_tac
+    cmp #TAC_BACK
+    lda t0
+    bcc :+
+    lsr a
 :   and tick
     bne :+
     lda m_ji
     cmp #100
     bcs :+
     inc m_ji
+:   lda m_cd
+    beq :+
+    dec m_cd
+:   lda m_auto
+    beq :+
+    dec m_auto
 :   lda m_state
     beq @follow
-    ; 詠唱中: 動かない。手元がきらめく
+    cmp #MS_PUNCH
+    bne :+
+    jmp MotherPunch
+:   ; 詠唱中: 動かない。手元がきらめく
     lda tick
     and #$07
     bne :+
@@ -189,8 +234,11 @@ UpdateMother:
 :   jmp MotherOverdrive
 
 @follow:
-    rep #$20
-    lda p_x+1
+    jsr MotherDecide        ; 勝手に癒やす / 殴りに行く。行き先を mdx, mdy に
+    bcc :+
+    rts
+:   rep #$20
+    lda mdx
     and #$00FF
     sta t1
     lda m_x+1
@@ -204,7 +252,7 @@ UpdateMother:
     eor #$FFFF
     inc a
 :   sta adx
-    lda p_y+1
+    lda mdy
     and #$00FF
     sta t2
     lda m_y+1
@@ -219,10 +267,10 @@ UpdateMother:
     inc a
 :   sta ady
     lda adx
-    cmp #30
+    cmp mstop_x
     bcs @go
     lda ady
-    cmp #26
+    cmp mstop_y
     bcs @go
     sep #$20
     stz m_anim
@@ -313,6 +361,169 @@ UpdateMother:
 :   sta m_face
     inc m_anim
     rts
+
+; 作戦に従って次の行動を決める。行動を始めたらキャリーを立てる
+MotherDecide:
+    .a8
+    lda p_x+1               ; ふつうは主人公のそばへ
+    sta mdx
+    lda p_y+1
+    sta mdy
+    lda #30
+    sta mstop_x
+    lda #26
+    sta mstop_y
+    stz mstop_x+1
+    stz mstop_y+1
+    lda m_tac               ; よりそう: 危なくなったら勝手に癒やす
+    bne @chase
+    lda m_auto
+    bne @chase
+    rep #$20
+    lda p_hp
+    cmp #AUTO_HP
+    sep #$20
+    bcs @chase
+    lda m_ji
+    cmp #HEAL_COST
+    bcc @chase
+    sbc #HEAL_COST
+    sta m_ji
+    lda #MS_HEAL
+    sta m_state
+    lda #HEAL_TIME
+    sta m_timer
+    lda #180
+    sta m_auto
+    lda #SE_CAST
+    jsr PlaySe
+    sec
+    rts
+@chase:
+    lda m_order             ; 「殴って！」か、まえにでる なら敵へ
+    bne :+
+    lda m_tac
+    cmp #TAC_FRONT
+    bne @stay
+:   jsr FindNearest
+    bcs :+
+    stz m_order
+@stay:
+    clc
+    rts
+:   ldx near_idx
+    lda d_x+1,x
+    sta mdx
+    lda d_y+1,x
+    sta mdy
+    lda #10
+    sta mstop_x
+    lda #8
+    sta mstop_y
+    lda m_cd                ; 拳が届くなら殴る
+    bne @stay
+    lda mdx
+    sec
+    sbc m_x+1
+    bcs :+
+    eor #$FF
+    inc a
+:   cmp #20
+    bcs @stay
+    lda mdy
+    sec
+    sbc m_y+1
+    bcs :+
+    eor #$FF
+    inc a
+:   cmp #16
+    bcs @stay
+    stx m_target
+    lda #MS_PUNCH
+    sta m_state
+    lda #PUNCH_TIME
+    sta m_timer
+    lda #50
+    sta m_cd
+    stz m_order
+    sec
+    rts
+
+; 整骨拳: 構えて、半ばで当てる
+MotherPunch:
+    .a8
+    dec m_timer
+    bne :+
+    stz m_state
+    rts
+:   lda m_timer
+    cmp #PUNCH_TIME/2
+    beq :+
+    rts
+:   ldx m_target
+    lda d_type,x
+    bne :+
+    rts
+:   lda d_dead,x
+    beq :+
+    rts
+:   lda #MOM_FIST*3         ; 拳 × 3 − 守
+    sec
+    sbc d_def,x
+    bcs :+
+    lda #1
+:   sta t3
+    stz t3+1
+    lda d_col,x             ; 崩壊中は2倍
+    beq :+
+    asl t3
+:   rep #$20
+    lda t3
+    sta last_dmg
+    lda d_hp,x
+    sec
+    sbc t3
+    beq @dead
+    bpl @alive
+@dead:
+    stz d_hp,x
+    sep #$20
+    lda #DEAD_TIME
+    sta d_dead,x
+    bra @knock
+@alive:
+    sta d_hp,x
+    sep #$20
+@knock:
+    lda d_type,x            ; ボス以外は殴り飛ばす
+    cmp #TYPE_BOSS
+    beq @fx
+    rep #$20
+    lda d_x+1,x
+    and #$00FF
+    sta t1
+    lda m_x+1
+    and #$00FF
+    cmp t1
+    lda #$0500
+    bcc :+
+    lda #$10000-$0500
+:   sta d_vx,x
+    stz d_vy,x
+    sep #$20
+    lda #30
+    sta d_stun,x
+    stz d_state,x
+@fx:
+    lda #12
+    sta d_flash,x
+    lda #8
+    sta hitstop
+    lda #6
+    sta shake_t
+    lda #SE_HEAVY
+    jsr PlaySe
+    jmp SpawnSparkAtDummy
 
 ; 癒やしの手。最大HPを超えた分は「過剰生命」、超えすぎると「癒え焼け」
 MotherHeal:
@@ -463,6 +674,48 @@ DrawMother:
 @standing:
     lda m_state
     beq @walk
+    cmp #MS_PUNCH           ; 殴る: 構え → 打ち (正面の立ち絵を前へずらす)
+    bne @cast
+    lda m_timer
+    cmp #PUNCH_TIME/2
+    bcs @cast
+    lda m_face
+    asl a
+    asl a
+    rep #$20
+    and #$00FF
+    tax
+    sep #$20
+    lda mom_frame_tbl,x
+    sta spr_tile
+    lda mom_frame_tbl+1,x
+    ora t3
+    sta spr_attr
+    lda #$02
+    sta spr_size
+    lda m_face
+    asl a
+    rep #$20
+    and #$00FF
+    tax
+    lda m_x+1
+    and #$00FF
+    clc
+    adc punch_dx,x
+    sec
+    sbc #16
+    sta spr_x
+    lda m_y+1
+    and #$00FF
+    clc
+    adc punch_dy,x
+    sec
+    sbc #26
+    sta spr_y
+    sep #$20
+    jmp AddSprite
+@cast:
+@castdraw:
     lda mom_cast_frame
     sta spr_tile
     lda mom_cast_frame+1
@@ -510,3 +763,7 @@ DrawHeroAndMother:
     jsr DrawSwords
     jsr DrawPlayer
     jmp DrawMother
+
+; 殴る時に前へずらす量 (向き: 下, 上, 左, 右)
+punch_dx: .word 0, 0, $10000-6, 6
+punch_dy: .word 6, $10000-6, 0, 0

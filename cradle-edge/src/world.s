@@ -860,6 +860,7 @@ NewGame:
     sta own
     stz kit
     stz med_sel
+    stz m_tac
     ldx #$0000
 @mk:
     stz marks,x

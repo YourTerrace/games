@@ -307,7 +307,11 @@ SCRIPTS = {
 
 Ｘ：母さんが敵を
 　　過治癒する
-満ちれば敵は崩壊！""",
+満ちれば敵は崩壊！
+
+Ｘ長押し：
+　母さんが殴りに行く
+ＳＴＡＲＴ：作戦""",
     "FIRE": """焚き火で休んだ。
 体力がもどった。
 支度をととのえよう。
@@ -344,7 +348,18 @@ SCRIPTS = {
     "MEAL1": """鹿肉　　　力＋３""",
     "MEAL2": """根菜煮　　守＋３""",
     "MEAL3": """茸飯　慈力回復倍""",
-    "GLYPHS": """▶　""",
+    "GLYPHS": """▶　０１２３４５６７８９●○""",
+    "P_TAC": """作戦　""",
+    "TAC0": """よりそう　""",
+    "TAC1": """まえにでる""",
+    "TAC2": """さがってて""",
+    "P_STR": """　力""",
+    "P_DEF": """　守""",
+    "P_MK": """　印""",
+    "P_E1": """　ネズミ""",
+    "P_E2": """　へび""",
+    "P_E3": """　案山子""",
+    "P_E4": """　水車番""",
     "BOSS_IN": """ミレイユ
 「……じいさん？」
 
@@ -413,6 +428,9 @@ for i, name in enumerate(SCRIPT_ORDER):
     L.append(f"SCR_{name} = {i}")
 L.append(f"GL_CURSOR = {glyphs.index('▶')}")
 L.append(f"GL_SPACE = {glyphs.index('　')}")
+L.append(f"GL_FULL = {glyphs.index('●')}")
+L.append(f"GL_EMPTY = {glyphs.index('○')}")
+L.append("digit_glyph: .byte " + ", ".join(str(glyphs.index(c)) for c in "０１２３４５６７８９"))
 L.append("script_tbl: .word " + ", ".join(f".loword(scr_{n})" for n in SCRIPT_ORDER))
 for name in SCRIPT_ORDER:
     b = script_bytes[name]

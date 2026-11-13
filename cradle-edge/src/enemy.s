@@ -195,6 +195,9 @@ EnemyTarget:
     bne @player
     lda m_state
     bne @mom
+    lda m_tac               ; さがってて の母は、詠唱していなければ狙われない
+    cmp #TAC_BACK
+    beq @player
     lda d_type,x
     cmp #TYPE_SNAKE
     bne @player

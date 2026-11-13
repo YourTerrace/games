@@ -136,6 +136,15 @@ m_timer:     .res 1
 m_anim:      .res 1
 m_ji:        .res 1          ; 慈力
 m_target:    .res 2
+m_tac:       .res 1          ; 作戦
+m_order:     .res 1          ; 「殴って！」を受けた
+m_xhold:     .res 1          ; X を押し続けている長さ
+m_cd:        .res 1          ; 次に殴れるまで
+m_auto:      .res 1          ; 次に勝手に癒やせるまで
+mdx:         .res 1          ; 母の行き先
+mdy:         .res 1
+mstop_x:     .res 2          ; 行き先にこれだけ近づいたら止まる
+mstop_y:     .res 2
 m_hp:        .res 1
 m_inv:       .res 1
 m_rev:       .res 1          ; 助け起こしの進み具合
@@ -648,6 +657,10 @@ InitGame:
     stz m_inv
     stz m_rev
     stz ev_boss
+    stz m_order
+    stz m_xhold
+    stz m_cd
+    stz m_auto
     lda #MOM_HP_MAX
     sta m_hp
     lda #100
@@ -730,6 +743,13 @@ UpdatePlayer:
     dec p_just
 :   jsr MotherCommands
     jsr UseMedicine
+    lda p_state             ; START で一時停止 (自由に動ける時だけ)
+    bne :+
+    lda pad_new+1
+    and #$10
+    beq :+
+    jmp PauseMenu
+:
     lda p_state
     cmp #ST_HURT
     bne :+

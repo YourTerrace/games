@@ -326,6 +326,161 @@ MenuAddr:
     sep #$20
     rts
 
+; ---- 一時停止 (START): 母の作戦・力・見切り印 ----------------------------
+PauseMenu:
+    .a8
+    stz pad_new
+    stz pad_new+1
+    jsr WinOpen
+    stz menu_cur
+    jsr PauseTac
+    ; 2 行目: 力 守 印
+    lda #1
+    sta menu_line
+    jsr MenuAddr
+    lda #SCR_P_STR
+    jsr DrawLine
+    lda p_str
+    jsr PutNum
+    lda #SCR_P_DEF
+    jsr DrawLine
+    lda p_def
+    jsr PutNum
+    lda #SCR_P_MK
+    jsr DrawLine
+    lda marks+1
+    clc
+    adc marks+2
+    clc
+    adc marks+3
+    clc
+    adc marks+4
+    jsr PutNum
+    ; 3, 4 行目: 敵ごとの見切り印
+    lda #2
+    sta menu_line
+    jsr MenuAddr
+    lda #SCR_P_E1
+    jsr DrawLine
+    lda marks+1
+    jsr PutMarks
+    lda #SCR_P_E2
+    jsr DrawLine
+    lda marks+2
+    jsr PutMarks
+    lda #3
+    sta menu_line
+    jsr MenuAddr
+    lda #SCR_P_E3
+    jsr DrawLine
+    lda marks+3
+    jsr PutMarks
+    lda #SCR_P_E4
+    jsr DrawLine
+    lda marks+4
+    jsr PutMarks
+@loop:
+    stz pad_new
+    stz pad_new+1
+    jsr WaitFrame
+    jsr ReadPad
+    lda pad_new+1
+    and #$90                ; B / START で閉じる
+    bne @exit
+    lda pad_new+1
+    and #$43                ; Y / 左右
+    bne @tac
+    lda pad_new
+    bpl @loop               ; A
+@tac:
+    lda m_tac
+    inc a
+    cmp #3
+    bcc :+
+    lda #0
+:   sta m_tac
+    stz m_order
+    lda #SE_DENY
+    jsr PlaySe
+    jsr PauseTac
+    bra @loop
+@exit:
+    stz pad_new
+    stz pad_new+1
+    jmp WinClose
+
+PauseTac:
+    .a8
+    lda #0
+    jsr MenuCursor
+    lda #SCR_P_TAC
+    jsr DrawLine
+    lda m_tac
+    clc
+    adc #SCR_TAC0
+    jmp DrawLine
+
+; A = 0-99。全角 2 桁 (十の位が 0 なら空白)
+PutNum:
+    .a8
+    sta $4204
+    stz $4205
+    lda #10
+    sta $4206
+    jsr DivWait
+    lda $4216
+    pha
+    lda $4214
+    beq @sp
+    rep #$20
+    and #$00FF
+    tax
+    sep #$20
+    lda digit_glyph,x
+    bra @t
+@sp:
+    lda #GL_SPACE
+@t:
+    jsr PutGlyph
+    pla
+    rep #$20
+    and #$00FF
+    tax
+    sep #$20
+    lda digit_glyph,x
+    jmp PutGlyph
+
+; A = 印の数 → ●●○
+PutMarks:
+    .a8
+    sta t2
+    lda #0
+    sta t3
+@loop:
+    lda t3
+    cmp t2
+    lda #GL_FULL
+    bcc :+
+    lda #GL_EMPTY
+:   jsr PutGlyph
+    inc t3
+    lda t3
+    cmp #MARK_MAX
+    bcc @loop
+    rts
+
+WinClose:
+    .a8
+    rep #$20
+    lda #.loword(BlankMap)
+    sta vd_src
+    lda #WIN_ADDR
+    sta vd_dst
+    lda #WIN_BYTES
+    sta vd_len
+    sep #$20
+    jmp WaitFrame
+
 ; ---- 薬箱 ------------------------------------------------------------------
 MED_HEAL    = 60
 MED_JI      = 50

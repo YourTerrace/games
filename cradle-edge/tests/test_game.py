@@ -211,6 +211,41 @@ def rush_up(target_room):
 
 walk_to(128, pos()[1])
 check("裏山 1 へ", rush_up(2))
+# 作戦: START で開いて「まえにでる」に。母が殴りに行く
+for _ in range(60):
+    poke_w("p_hp", 100)
+    r[sym["p_inv"]] = 30
+    emu.run(1)
+emu.run(2, "START")
+emu.run(200)
+p0 = pos()
+emu.run(10, "UP")
+check("START で一時停止 (動けない)", pos() == p0)
+emu.run(2, "A")
+emu.run(60)
+check("作戦を切り替えられる", b("m_tac") == 1)
+shot("05c_pause")
+emu.run(2, "START")
+emu.run(20)
+punched = False
+for _ in range(900):
+    poke_w("p_hp", 100)
+    r[sym["p_inv"]] = 30
+    r[sym["m_inv"]] = 30
+    emu.run(1)
+    if b("m_state") == 3:
+        punched = True
+        break
+check("まえにでる: 母が敵を殴りに行く", punched)
+emu.run(2, "START")
+emu.run(200)
+emu.run(2, "A")
+emu.run(60)
+emu.run(2, "A")
+emu.run(60)
+emu.run(2, "START")
+emu.run(20)
+check("作戦を よりそう に戻せる", b("m_tac") == 0)
 # 箱から苔断ち
 for _ in range(300):
     poke_w("p_hp", 100)
