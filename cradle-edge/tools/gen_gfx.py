@@ -428,14 +428,16 @@ def scarecrow(k):
 
 
 def satbar():
-    """飽和ゲージ 4 段階 (16x16 x 4)。"""
+    """飽和ゲージ 3 段階 (16x16 x 3) と、母が狙う敵の上の ▼ (4 コマ目)。"""
     im = new32()
     d = ImageDraw.Draw(im)
-    for k in range(4):
+    for k in range(3):
         ox, oy = (k % 2) * 16, (k // 2) * 16
         d.rectangle([ox + 1, oy + 6, ox + 14, oy + 9], fill=4)
-        fill = 3 * (k + 1)
-        d.rectangle([ox + 2, oy + 7, ox + 1 + fill, oy + 8], fill=3 if k == 3 else 2)
+        fill = 4 * (k + 1)
+        d.rectangle([ox + 2, oy + 7, ox + 1 + fill, oy + 8], fill=3 if k == 2 else 2)
+    d.polygon([(19, 20), (28, 20), (23, 27)], fill=4)
+    d.polygon([(20, 21), (27, 21), (23, 25)], fill=2)
     return im
 
 

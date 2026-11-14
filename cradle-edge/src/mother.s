@@ -32,10 +32,10 @@ MotherCommands:
     beq :+
     rts
 :   lda m_state
-    bne @out
-    lda dead_t
-    bne @out
-    lda pad_new
+    ora dead_t
+    beq :+
+    rts
+:   lda pad_new
     bpl @x                  ; bit7 = A
     lda m_ji
     cmp #HEAL_COST
@@ -67,6 +67,7 @@ MotherCommands:
     stz m_xhold
     lda #1
     sta m_order
+    TOAST US_T_ORDER
     lda #SE_CAST
     jmp PlaySe
 @xup:
@@ -77,8 +78,10 @@ MotherCommands:
     cmp #OVER_COST
     bcc @deny
     jsr FindNearest
-    bcc @out
-    lda m_ji
+    bcs :+
+    TOAST US_T_NOTGT
+    rts
+:   lda m_ji
     sec
     sbc #OVER_COST
     sta m_ji
@@ -91,6 +94,7 @@ MotherCommands:
     lda #SE_CAST
     jmp PlaySe
 @deny:
+    TOAST US_T_NOMP
     lda #SE_DENY
     jmp PlaySe
 @out:
@@ -149,6 +153,7 @@ UpdateMother:
     stz m_down+1
     lda #MOM_HP_MAX*3/10
     sta m_hp
+    TOAST US_T_MOMUP
     lda #SE_HEAL
     jmp PlaySe
 @still:
@@ -557,6 +562,8 @@ MotherHeal:
     jmp PlaySe
 @burn:
     .a16
+    lda #.loword(US_T_BURN)
+    sta toast_req
     lda #HP_MAX-10
     sta p_hp
     stz dodge_vx
@@ -608,8 +615,9 @@ MotherOverdrive:
     adc d_sat,x
     sta d_sat,x
     cmp d_satmax,x
-    bcc @no
-    ; ---- 崩壊 ----
+    bcs :+
+    jmp @no
+:   ; ---- 崩壊 ----
     sep #$20
     jsr ChartWrite
     rep #$20
@@ -632,12 +640,19 @@ MotherOverdrive:
 @kill:
     stz d_hp,x
     sep #$20
-    lda #DEAD_TIME
+    lda d_state,x           ; 倒れていた癒え残りなら「送った」
+    cmp #ES_DOWN
+    bne :+
+    TOAST US_T_SENT
+    bra :++
+:   TOAST US_T_COLLAPSE
+:   lda #DEAD_TIME
     sta d_dead,x
     bra @col
 @live:
     sta d_hp,x
     sep #$20
+    TOAST US_T_COLLAPSE
 @col:
     lda #COLLAPSE_TIME
     sta d_col,x

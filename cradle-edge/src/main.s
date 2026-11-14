@@ -114,6 +114,13 @@ combo:       .res 1
 combo_t:     .res 1
 last_dmg:    .res 2
 tick:        .res 1
+up:          .res 2          ; 文字列 (画面の案内用)
+up2:         .res 2
+ux:          .res 2          ; 文字を書く先
+hn_lead:     .res 1
+hn_rem:      .res 1
+hb_pal:      .res 1
+hb_hide:     .res 1
 p_hp:        .res 2
 p_inv:       .res 1          ; 被弾後の無敵
 p_just:      .res 1          ; ジャスト回避後、返し刃を出せる残り時間
@@ -268,7 +275,13 @@ sh_vx:       .res NUM_SHOT*2
 sh_vy:       .res NUM_SHOT*2
 sh_t:        .res NUM_SHOT*2 ; 残り時間 (下位バイトのみ使う)
 sh_src:      .res NUM_SHOT*2 ; 撃った敵
-hud_buf:     .res 128
+hud_buf:     .res 256         ; 状態欄 (BG3 の 0-3 行)
+low_buf:     .res 192         ; 16, 17 行 (案内) と 26 行 (お知らせ)
+low_dirty:   .res 1           ; bit0 = 案内, bit1 = お知らせ を送る
+toast_req:   .res 2
+toast_t:     .res 1
+prompt_cur:  .res 2
+hud_tgt:     .res 2           ; 母が狙う敵 ($FFFF = なし)
 col_map:     .res 256
 it_kind:     .res 8
 it_x:        .res 8
@@ -296,6 +309,14 @@ r_total:     .res 8
     stx $4305
     lda #$01
     sta $420B
+.endmacro
+
+; お知らせを頼む (その場では描かない。フレームの終わりに ui.s がまとめて出す)
+.macro TOAST str
+    rep #$20
+    lda #.loword(str)
+    sta toast_req
+    sep #$20
 .endmacro
 
 ; 符号付き 16bit を 1bit 算術右シフト (A16)
@@ -370,7 +391,7 @@ ResetFast:
 
     ; 画像転送
     VRAM_DMA BgChr,     BG_CHR_SIZE,    VRAM_BG1_CHR
-    VRAM_DMA FontChr,   FONT_CHR_SIZE,  VRAM_BG3_CHR
+    VRAM_DMA UiChr,     UI_CHR_SIZE,    VRAM_BG3_CHR
     VRAM_DMA WindowChr, 48,             VRAM_BG3_CHR + 77*8
     VRAM_DMA HudMap,    $0800,          VRAM_BG3_MAP
     VRAM_DMA ObjChr,    OBJ_CHR_SIZE,   VRAM_OBJ_CHR
@@ -385,6 +406,15 @@ ResetFast:
     lda #^Palette
     sta $4304
     ldx #$0200
+    stx $4305
+    lda #$01
+    sta $420B
+    stz $2121               ; BG3 (案内の字) のパレット 8 本
+    ldx #.loword(UiPal)
+    stx $4302
+    lda #^UiPal
+    sta $4304
+    ldx #64
     stx $4305
     lda #$01
     sta $420B
@@ -472,6 +502,7 @@ MainLoop:
 :   jsr UpdateShake
     jsr DrawAll
     jsr BuildHud
+    jsr UpdateToast
     lda #$01
     sta nmi_ready
     jmp MainLoop
@@ -583,7 +614,7 @@ NmiFast:
     ; HUD 2行ぶんを転送
     lda #$80
     sta $2115
-    ldx #VRAM_BG3_MAP + 32
+    ldx #VRAM_BG3_MAP
     stx $2116
     lda #$01
     sta $4300
@@ -592,7 +623,7 @@ NmiFast:
     ldx #hud_buf
     stx $4302
     stz $4304
-    ldx #128
+    ldx #256
     stx $4305
     lda #$01
     sta $420B
@@ -647,6 +678,33 @@ NmiFast:
     ldx #$0000
     stx vd_len
 @no_vd:
+    lda low_dirty           ; 案内 (16, 17 行) とお知らせ (26 行)
+    beq @no_low
+    lsr a
+    bcc :+
+    ldx #VRAM_BG3_MAP + 16*32
+    stx $2116
+    ldx #low_buf
+    stx $4302
+    stz $4304
+    ldx #128
+    stx $4305
+    lda #$01
+    sta $420B
+:   lda low_dirty
+    and #$02
+    beq :+
+    ldx #VRAM_BG3_MAP + 26*32
+    stx $2116
+    ldx #low_buf + 128
+    stx $4302
+    stz $4304
+    ldx #64
+    stx $4305
+    lda #$01
+    sta $420B
+:   stz low_dirty
+@no_low:
     ; ジャスト回避の瞬間は画面を暗く
     lda dim_t
     beq :+
@@ -715,11 +773,18 @@ InitGame:
     sta m_ji
     ldx #$0000
 @h:
-    lda HudMap+64,x
+    lda HudMap,x
     sta hud_buf,x
     inx
-    cpx #128
+    cpx #256
     bne @h
+    rep #$20
+    lda #$FFFF
+    sta hud_tgt
+    sta prompt_cur
+    stz toast_req
+    sep #$20
+    stz toast_t
     lda chk_room
     jmp ChangeRoom
 
@@ -1992,6 +2057,7 @@ DrawAll:
     sty oam_idx
     jsr DrawFx
     jsr DrawShots
+    jsr DrawTarget
     ; 手前の木人 → 剣 → 主人公 → 奥の木人 → 影
     ldx #$0000
 @front:
@@ -2371,121 +2437,9 @@ DrawFx:
 .include "mother.s"
 .include "world.s"
 .include "prep.s"
+.include "ui.s"
 
 ; ---- HUD --------------------------------------------------------------------
-; combo (2桁) と last_dmg (3桁) をタイル番号に (タイル1 = '0')
-BuildHud:
-    .a8
-    lda #10                 ; HP: 10 マス + 過剰生命 5 マス (金)
-    sta bar_th
-    rep #$20
-    lda p_hp
-    sta t1
-    sep #$20
-    ldx #5*2
-    lda #15
-    jsr DrawBar
-    lda m_hp                ; 母の HP: 7 マス
-    sta t1
-    stz t1+1
-    ldx #64 + 5*2
-    lda #7
-    jsr DrawBar
-    stz bar_th              ; 慈力: 10 マス (金)
-    lda m_ji
-    sta t1
-    stz t1+1
-    ldx #64 + 13*2
-    lda #10
-    jsr DrawBar
-    lda med_sel             ; 薬: 種類の頭文字と残り (L:H 3)
-    rep #$20
-    and #$00FF
-    tax
-    sep #$20
-    lda med_letter,x
-    sta hud_buf+64+25*2
-    lda med,x
-    inc a
-    sta hud_buf+64+27*2
-    rep #$20
-    lda last_dmg
-    cmp #1000
-    bcc :+
-    lda #999
-:   sta $4204
-    sep #$20
-    lda #100
-    sta $4206
-    jsr DivWait
-    lda $4214
-    inc a
-    sta hud_buf+27*2
-    lda $4216
-    sta $4204
-    stz $4205
-    lda #10
-    sta $4206
-    jsr DivWait
-    lda $4214
-    inc a
-    sta hud_buf+28*2
-    lda $4216
-    inc a
-    sta hud_buf+29*2
-    rts
-
-; t1 = 値, X = hud_buf 内の位置, A = マス数 (1マス = 10)
-; bar_th 番目以降のマスは金色。bar_th = 0 なら全体が金色のゲージ
-DrawBar:
-    .a8
-    sta t2
-    ldy #$0000
-@cell:
-    rep #$20
-    lda t1
-    cmp #10
-    bcc :+
-    lda #10
-:   sta t0
-    lda t1
-    sec
-    sbc t0
-    sta t1
-    sep #$20
-    phx
-    ldx t0
-    lda bar_level,x
-    plx
-    sta t3
-    tya
-    cmp bar_th
-    bcc @white
-    lda t3
-    bne @gold
-    lda bar_th              ; 過剰生命の区間は、空なら何も出さない
-    beq @gold
-    lda #0
-    bra @put
-@gold:
-    lda t3
-    clc
-    adc #BAR_TILE+9
-    bra @put
-@white:
-    lda t3
-    clc
-    adc #BAR_TILE
-@put:
-    sta hud_buf,x
-    inx
-    inx
-    iny
-    tya
-    cmp t2
-    bne @cell
-    rts
-
 DivWait:                    ; 除算器の結果待ち (16サイクル以上)
     nop
     nop
@@ -2563,8 +2517,10 @@ SetPal:     .incbin "set0.pal"
 BgPal:      .incbin "bg.pal"
 WindowChr:  .incbin "window.chr"
 Palette:    .incbin "palette.bin"
-FontChr:    .incbin "font.chr"
-HudMap:     .incbin "hud.map"
+UiChr:      .incbin "ui.chr"
+UiPal:      .incbin "ui.pal"
+HudMap:     .incbin "hudmap.bin"
+.include "ui.inc"
 
 .segment "BANK1"
 ObjChr:     .incbin "obj.chr"

@@ -809,7 +809,11 @@ ShowScript:
     tax
     lda script_tbl,x
     sta scp
+    stz up                  ; 窓の上に「Ａ：つぎへ」
+    lda #.loword(US_N_TALK)
+    sta up2
     sep #$20
+    jsr HelpShow
 @page:
     jsr WinOpen
     rep #$20
@@ -844,15 +848,7 @@ ShowScript:
     bra @page
 @end:
     jsr WaitButton
-    rep #$20
-    lda #.loword(BlankMap)
-    sta vd_src
-    lda #WIN_ADDR
-    sta vd_dst
-    lda #WIN_BYTES
-    sta vd_len
-    sep #$20
-    jmp WaitFrame
+    jmp WinClose
 
 ; A = 台本番号。txt_addr から 1 行だけ窓なしで書く (タイトル用)
 DrawLine:
@@ -970,14 +966,20 @@ NewGame:
     rts
 
 ; ---- タイトル ---------------------------------------------------------------
-T_TITLE = VRAM_BG3_MAP + 8*32 + 9
-T_NEW   = VRAM_BG3_MAP + 15*32 + 11
-T_CONT  = VRAM_BG3_MAP + 18*32 + 11
-CURSOR  = (BAR_TILE + 8) | $2000
+T_TITLE = VRAM_BG3_MAP + 6*32 + 9
+T_NEW   = VRAM_BG3_MAP + 11*32 + 11
+T_CONT  = VRAM_BG3_MAP + 13*32 + 11
+CURSOR  = UI_ARROW_R | (($20 | (UP_GOLD << 2)) << 8)
 
 TitleScreen:
     .a8
     jsr FadeOut
+    rep #$20
+    stz up
+    lda #.loword(US_N_TITLE)
+    sta up2
+    sep #$20
+    jsr HelpShow
     lda #$FF
     sta cur_set
     lda #$04                ; BG3 だけ表示
@@ -1063,10 +1065,11 @@ TitleScreen:
     lda #SE_JUST
     jsr PlaySe
     jsr FadeOut
+    jsr HelpClear
     rep #$20                ; 文字を消す (8-17 行、12-21 行)
     lda #.loword(BlankMap)
     sta vd_src
-    lda #VRAM_BG3_MAP + 8*32
+    lda #VRAM_BG3_MAP + 6*32
     sta vd_dst
     lda #WIN_BYTES
     sta vd_len

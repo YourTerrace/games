@@ -16,11 +16,15 @@ build/audio.inc: tools/gen_audio.py
 	@mkdir -p build
 	$(PYTHON) tools/gen_audio.py build
 
+build/ui.inc: tools/gen_ui.py
+	@mkdir -p build
+	$(PYTHON) tools/gen_ui.py build
+
 build/rooms.inc: tools/gen_world.py
 	@mkdir -p build
 	$(PYTHON) -W ignore tools/gen_world.py build
 
-build/main.o: src/main.s src/enemy.s src/mother.s src/world.s src/prep.s $(GFX) build/audio.inc build/rooms.inc Makefile
+build/main.o: src/main.s src/enemy.s src/mother.s src/world.s src/prep.s src/ui.s build/ui.inc $(GFX) build/audio.inc build/rooms.inc Makefile
 	ca65 -g --cpu 65816 -I build --bin-include-dir build -o $@ -l build/main.lst src/main.s
 
 $(ROM): build/main.o lorom.cfg tools/fix_checksum.py

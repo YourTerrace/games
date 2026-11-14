@@ -281,6 +281,7 @@ PrepMenu:
     stz menu_cur
     stz menu_top
     jsr MenuRedraw
+    jsr PrepHelp
 @loop:
     stz pad_new
     stz pad_new+1
@@ -308,6 +309,7 @@ PrepMenu:
     sta menu_line
     pla
     sta menu_cur
+    jsr PrepHelp
     jsr MenuScroll          ; 見えない行へ動いたら描き直す
     bcs @loop
     lda menu_line           ; 前の行と今の行のカーソルを書き直す
@@ -343,17 +345,9 @@ PrepMenu:
 @exit:
     jsr RecalcStats
     jsr RefillKit
-    rep #$20
-    lda #.loword(BlankMap)
-    sta vd_src
-    lda #WIN_ADDR
-    sta vd_dst
-    lda #WIN_BYTES
-    sta vd_len
-    sep #$20
     stz pad_new
     stz pad_new+1
-    jmp WaitFrame
+    jmp WinClose
 @swA:
     lda eqB
     sta t0
@@ -409,7 +403,37 @@ MenuRedraw:
     sbc menu_top
     cmp #4
     bcc @l
-    rts
+    ; 窓の右の枠に、上下にまだ行があることを ▲▼ で示す
+    rep #$20
+    lda #WIN_ADDR + 1*32 + 30
+    sta vq
+    lda #WIN_ADDR + 8*32 + 30
+    sta vq+6
+    lda #79 | $2000         ; 枠 (縦線)
+    sta vq+2
+    sta vq+8
+    lda #$2000
+    sta vq+4
+    sta vq+10
+    sep #$20
+    lda menu_top
+    beq :+
+    rep #$20
+    lda #UI_ARROW_U | (($20 | (UP_GOLD << 2)) << 8)
+    sta vq+2
+    sep #$20
+:   lda menu_top
+    clc
+    adc #4
+    cmp #NUM_ROWS
+    bcs :+
+    rep #$20
+    lda #UI_ARROW_D | (($20 | (UP_GOLD << 2)) << 8)
+    sta vq+8
+    sep #$20
+:   lda #$01
+    sta vq_n
+    jmp WaitFrame
 
 ; カーソルが窓の外に出たら menu_top を動かして描き直し、キャリーを立てる
 MenuScroll:
@@ -551,6 +575,7 @@ PauseDraw:
     jsr WinOpen
     stz menu_cur
     stz menu_top
+    jsr PauseHelp
     lda pause_pg
     beq :+
     jmp PausePage2
@@ -628,6 +653,7 @@ PauseLoop:
     lda #SE_DENY
     jsr PlaySe
     jsr PauseTac
+    jsr PauseHelp
     bra @loop
 @exit:
     stz pad_new
@@ -737,8 +763,57 @@ WinClose:
     sta vd_dst
     lda #WIN_BYTES
     sta vd_len
+    lda #$FFFF              ; 下の帯は窓で消えたので、描き直させる
+    sta prompt_cur
     sep #$20
+    stz toast_t
+    jsr HelpClear
     jmp WaitFrame
+
+; 支度メニューの説明 (選んでいる行) と操作
+PrepHelp:
+    .a8
+    lda menu_cur
+    asl a
+    rep #$20
+    and #$00FF
+    tax
+    lda prep_desc,x
+    sta up
+    lda #.loword(US_N_PREP)
+    sta up2
+    sep #$20
+    jmp HelpShow
+
+prep_desc: .word .loword(US_D_SWA), .loword(US_D_SWB), .loword(US_D_MEAL), .loword(US_D_KIT)
+           .word .loword(US_D_AM), .loword(US_D_AM)
+
+; 一時停止の説明と操作
+PauseHelp:
+    .a8
+    lda pause_pg
+    bne @p2
+    lda m_tac
+    asl a
+    rep #$20
+    and #$00FF
+    tax
+    lda tac_desc,x
+    sta up
+    lda #.loword(US_N_PAUSE1)
+    sta up2
+    sep #$20
+    jmp HelpShow
+@p2:
+    rep #$20
+    lda #.loword(US_D_PG2)
+    sta up
+    lda #.loword(US_N_PAUSE2)
+    sta up2
+    sep #$20
+    jmp HelpShow
+
+tac_desc: .word .loword(US_D_TAC0), .loword(US_D_TAC1), .loword(US_D_TAC2)
 
 ; A = 見切り印の合計
 MarksTotal:
@@ -830,6 +905,7 @@ MasteryGain:
     plx
     cmp t2
     beq @same
+    TOAST US_T_MQ
     lda #SE_JUST            ; 熟練 Lv が上がった
     jsr PlaySe
     lda p_x+1
@@ -859,6 +935,10 @@ ChartWrite:
     bcs :+
     inc a
     sta chart,x
+    cmp #CHART_MAX
+    bne @nc
+    TOAST US_T_CHART3
+@nc:
     jsr RecalcStats
 :   plx
     rts
@@ -900,6 +980,13 @@ UseMedicine:
     bcc :+
     lda #0
 :   sta med_sel
+    asl a
+    rep #$20
+    and #$00FF
+    tax
+    lda med_sel_msg,x
+    sta toast_req
+    sep #$20
     lda #SE_DENY
     jmp PlaySe
 @use:
@@ -913,8 +1000,10 @@ UseMedicine:
     tax
     sep #$20
     lda med,x
-    beq @deny
-    cpx #1
+    bne :+
+    TOAST US_T_NOMED
+    bra @deny
+:   cpx #1
     beq @ji
     bcs @rev
     rep #$20                ; 傷薬: 最大までしか戻らない (過剰生命にはならない)
@@ -932,7 +1021,7 @@ UseMedicine:
 @ji:
     lda m_ji
     cmp #100
-    bcs @deny
+    bcs @notneed
     clc
     adc #MED_JI
     cmp #100
@@ -943,7 +1032,7 @@ UseMedicine:
 @rev:
     lda m_down              ; 気付け薬: 倒れた母をすぐ起こす
     ora m_down+1
-    beq @deny
+    beq @notneed
     stz m_down
     stz m_down+1
     lda #MOM_HP_MAX/2
@@ -955,6 +1044,7 @@ UseMedicine:
     tax
     sep #$20
     dec med,x
+    TOAST US_T_USED
     lda p_x+1
     sta fx_ax
     lda p_y+1
@@ -966,9 +1056,13 @@ UseMedicine:
     jmp PlaySe
 @deny16:
     sep #$20
+@notneed:
+    TOAST US_T_NOUSE
 @deny:
     lda #SE_DENY
     jmp PlaySe
+
+med_sel_msg: .word .loword(US_T_SEL0), .loword(US_T_SEL1), .loword(US_T_SEL2)
 
 ;            傷薬3慈1  傷2慈2  傷2気2  傷4
 kit_h:   .byte 3,       2,      2,      4

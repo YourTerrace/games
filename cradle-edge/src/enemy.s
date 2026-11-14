@@ -555,6 +555,7 @@ HurtMother:
 @down:
     stz m_hp
     stz m_rev
+    TOAST US_T_MOMDOWN
     rep #$20
     lda #900                ; 15 秒で自力復帰
     sta m_down
@@ -609,16 +610,23 @@ HurtPlayer:
     inc t2
 :   lda t1
     cmp t2
-    bcs @out
-    lda marks,y             ; 見切り印を 1 つ
+    bcc :+
+    jmp @out
+:   lda marks,y             ; 見切り印を 1 つ (3 つまで)
     cmp #MARK_MAX
-    bcs :+
+    bcs @nomark
     inc a
     sta marks,y
-    phx
+    cmp #MARK_MAX
+    bne :+
+    TOAST US_T_MARK3
+    bra :++
+:   TOAST US_T_MARK
+:   phx
     jsr RecalcStats
     plx
-:   lda #50
+@nomark:
+    lda #50
     sta p_just
     stx just_idx
     lda #10
@@ -955,7 +963,7 @@ DrawSatBar:
     bcc @got
     sta t1
     iny
-    cpy #$0003
+    cpy #$0002
     bcc @lv
 @got:
     sep #$20
@@ -995,6 +1003,7 @@ KillEnemy:
     sta d_state,x
     lda #DOWN_TIME
     sta d_timer,x
+    TOAST US_T_DOWN
     stz d_stun,x
     rep #$20
     stz d_hp,x
@@ -1029,6 +1038,7 @@ WallStun:
     stz d_state,x
     lda #90
     sta d_stun,x
+    TOAST US_T_STUN
     lda #8
     sta shake_t
     lda #12
